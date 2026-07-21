@@ -15,10 +15,16 @@ import datetime
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+IS_WIN = sys.platform == "win32"
+# Hide the console window of child processes on Windows; no-op elsewhere.
+CREATIONFLAGS = subprocess.CREATE_NO_WINDOW if IS_WIN else 0
+TIDDL_BIN = "tiddl.exe" if IS_WIN else "tiddl"
 
 import flet as ft
 import tomlkit
@@ -326,11 +332,12 @@ def find_tiddl() -> str | None:
     """Locate the tiddl CLI: next to this app first (installed bundle),
     then the working directory, then the system PATH (dev setup)."""
     candidates = []
-    try:
-        candidates.append(Path(sys.executable).resolve().parent / "tiddl.exe")
-    except Exception:
-        pass
-    candidates.append(Path.cwd() / "tiddl.exe")
+    for base in (sys.executable, sys.argv[0]):
+        try:
+            candidates.append(Path(base).resolve().parent / TIDDL_BIN)
+        except Exception:
+            pass
+    candidates.append(Path.cwd() / TIDDL_BIN)
     for candidate in candidates:
         try:
             if candidate.is_file():
@@ -345,7 +352,19 @@ def download_lock_path() -> Path:
 
 
 def _pid_alive(pid: int) -> bool:
-    """Check liveness via OpenProcess (os.kill(pid, 0) is unsafe on Windows)."""
+    """Check liveness. Windows: OpenProcess (os.kill(pid, 0) TERMINATES the
+    process there). POSIX: signal 0 is the standard, safe liveness probe."""
+    if not IS_WIN:
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        except Exception:
+            return False
+
     import ctypes
 
     PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
@@ -560,9 +579,32 @@ class TiddlGui:
     # ---------- auth ----------
 
     def _cli_env(self) -> dict:
-        return dict(
+        env = dict(
             os.environ, PYTHONIOENCODING="utf-8", COLUMNS="400", PYTHONUNBUFFERED="1"
         )
+        # Bundled ffmpeg sits next to the tiddl binary; POSIX exec only
+        # searches PATH (and Finder-launched apps get a minimal one), so
+        # prepend that folder explicitly. Harmless on Windows too.
+        try:
+            env["PATH"] = str(Path(self.tiddl_exe).parent) + os.pathsep + env.get("PATH", "")
+        except Exception:
+            pass
+        return env
+
+    def _popen_kwargs(self) -> dict:
+        kwargs: dict = {"creationflags": CREATIONFLAGS} if IS_WIN else {"start_new_session": True}
+        return kwargs
+
+    def _kill_proc_tree(self, proc: subprocess.Popen):
+        if IS_WIN:
+            subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True
+            )
+        else:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except Exception:
+                proc.kill()
 
     def check_auth(self):
         """Probe auth state; tiddl has no /me endpoint, the refresh output is
@@ -572,7 +614,7 @@ class TiddlGui:
                 [self.tiddl_exe, "auth", "refresh"],
                 capture_output=True, text=True, encoding="utf-8", errors="replace",
                 env=self._cli_env(), timeout=60,
-                creationflags=subprocess.CREATE_NO_WINDOW,
+                creationflags=CREATIONFLAGS,
             )
             text = ANSI_RE.sub("", (out.stdout or "") + (out.stderr or ""))
         except Exception:
@@ -599,7 +641,7 @@ class TiddlGui:
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, encoding="utf-8", errors="replace", bufsize=1,
                 env=self._cli_env(),
-                creationflags=subprocess.CREATE_NO_WINDOW,
+                creationflags=CREATIONFLAGS,
             )
             assert proc.stdout is not None
             for raw in proc.stdout:
@@ -1412,10 +1454,7 @@ class TiddlGui:
     def on_cancel(self, e):
         self.cancelled = True
         if self.proc and self.proc.poll() is None:
-            subprocess.run(
-                ["taskkill", "/PID", str(self.proc.pid), "/T", "/F"],
-                capture_output=True,
-            )
+            self._kill_proc_tree(self.proc)
             self.set_status(self.t("cancelled"))
 
     def run_one(self, cmd: list[str]) -> tuple[int, int | None]:
@@ -1437,7 +1476,7 @@ class TiddlGui:
             bufsize=1,
             env=self._cli_env(),
             cwd=str(Path(self.tiddl_exe).parent),
-            creationflags=subprocess.CREATE_NO_WINDOW,
+            **self._popen_kwargs(),
         )
         assert self.proc.stdout is not None
         for raw in self.proc.stdout:
