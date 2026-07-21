@@ -29,7 +29,7 @@ Requires an active TIDAL subscription (HiFi for lossless quality).
 2. Install ffmpeg from your distro (`sudo apt install ffmpeg` or equivalent)
 3. Run `./tiddl-gui` → log in to TIDAL → set your folders → download
 
-macOS: build with `release_macos.sh` on a Mac (DMG coming to Releases).
+macOS: build with `release_macos.sh` on a Mac — see [BUILD_MACOS.md](BUILD_MACOS.md) for the full step-by-step (DMG coming to Releases).
 
 ## Build from source
 
