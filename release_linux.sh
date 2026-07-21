@@ -33,13 +33,20 @@ pyinstaller --onefile --console --name tiddl --noconfirm \
 cd ..
 
 echo "[2/4] GUI (flet build linux)..."
+# flet build EMPAQUETA todo lo que haya en la carpeta del proyecto ->
+# compilar desde un staging limpio con solo main.py y requirements.txt.
 # echo (no `yes`): cuando flet termina, `yes` muere por SIGPIPE (141) y con
 # pipefail eso abortaria el script aunque el build haya sido exitoso.
+WORKDIR="$HOME/.tiddl-gui-build"
+rm -rf "$WORKDIR" && mkdir -p "$WORKDIR"
+cp main.py requirements.txt "$WORKDIR/"
+pushd "$WORKDIR" > /dev/null
 echo y | flet build linux --project tiddl-gui --product "tiddl by ElVigilante" \
     --company ElVigilante --build-version "$VERSION"
+popd > /dev/null
 
 echo "[3/4] Empacando tiddl junto al ejecutable..."
-BUNDLE="build/linux"
+BUNDLE="$WORKDIR/build/linux"
 cp cli-build/dist/tiddl "$BUNDLE/tiddl"
 chmod +x "$BUNDLE/tiddl"
 cat > "$BUNDLE/README.txt" <<EOF

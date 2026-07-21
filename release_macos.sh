@@ -33,13 +33,20 @@ pyinstaller --onefile --console --name tiddl --noconfirm \
 cd ..
 
 echo "[2/4] GUI (flet build macos)..."
+# flet build EMPAQUETA todo lo que haya en la carpeta del proyecto ->
+# compilar desde un staging limpio con solo main.py y requirements.txt.
 # echo (no `yes`): cuando flet termina, `yes` muere por SIGPIPE (141) y con
 # pipefail eso abortaria el script aunque el build haya sido exitoso.
+WORKDIR="$HOME/.tiddl-gui-build"
+rm -rf "$WORKDIR" && mkdir -p "$WORKDIR"
+cp main.py requirements.txt "$WORKDIR/"
+pushd "$WORKDIR" > /dev/null
 echo y | flet build macos --project tiddl-gui --product "tiddl by ElVigilante" \
     --company ElVigilante --build-version "$VERSION"
+popd > /dev/null
 
 echo "[3/4] Empacando tiddl + ffmpeg dentro del .app..."
-APP=$(ls -d build/macos/*.app | head -1)
+APP=$(ls -d "$WORKDIR"/build/macos/*.app | head -1)
 BINDIR="$APP/Contents/MacOS"
 cp cli-build/dist/tiddl "$BINDIR/tiddl"
 cp "$(command -v ffmpeg)" "$BINDIR/ffmpeg"

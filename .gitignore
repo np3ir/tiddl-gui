@@ -4,3 +4,6 @@ build/
 dist/
 *.spec
 storage/
+cli-build/
+dist-linux/
+dist-mac/
