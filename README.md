@@ -23,6 +23,14 @@ Desktop GUI for [tiddl-elvigilante](https://github.com/np3ir/tiddl-elvigilante),
 
 Requires an active TIDAL subscription (HiFi for lossless quality).
 
+## Install (Linux)
+
+1. Download `tiddl-ElVigilante-x.x.x-linux-x64.tar.gz` from [Releases](../../releases) and extract it
+2. Install ffmpeg from your distro (`sudo apt install ffmpeg` or equivalent)
+3. Run `./tiddl-gui` → log in to TIDAL → set your folders → download
+
+macOS: build with `release_macos.sh` on a Mac (DMG coming to Releases).
+
 ## Build from source
 
 The GUI is a single-file [Flet](https://flet.dev) app (`main.py`) that drives the `tiddl` CLI as a subprocess — every core feature (skip database, metadata enrichment, retries, rate limiting) lives in [the CLI](https://github.com/np3ir/tiddl-elvigilante) and works unchanged.
