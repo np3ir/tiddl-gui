@@ -33,7 +33,9 @@ pyinstaller --onefile --console --name tiddl --noconfirm \
 cd ..
 
 echo "[2/4] GUI (flet build linux)..."
-yes | flet build linux --project tiddl-gui --product "tiddl by ElVigilante" \
+# echo (no `yes`): cuando flet termina, `yes` muere por SIGPIPE (141) y con
+# pipefail eso abortaria el script aunque el build haya sido exitoso.
+echo y | flet build linux --project tiddl-gui --product "tiddl by ElVigilante" \
     --company ElVigilante --build-version "$VERSION"
 
 echo "[3/4] Empacando tiddl junto al ejecutable..."
