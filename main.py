@@ -625,6 +625,7 @@ class TiddlGui:
             return
         if "Not logged in" in text or "log in" in text.lower():
             self.login_btn.visible = True
+            self.refresh(self.login_btn)
             self.set_status(self.t("login_needed"), error=True)
         else:
             for line in text.splitlines():
@@ -634,6 +635,7 @@ class TiddlGui:
 
     def on_login(self, e):
         self.login_btn.disabled = True
+        self.refresh(self.login_btn)
         self.set_status(self.t("login_wait"))
         self.page.run_thread(self.login_worker)
 
@@ -666,10 +668,12 @@ class TiddlGui:
         self.login_btn.disabled = False
         if success:
             self.login_btn.visible = False
+            self.refresh(self.login_btn)
             self.set_status(self.t("login_ok"))
             self.cfg = load_tiddl_config()
             self.check_auth()
         else:
+            self.refresh(self.login_btn)
             self.set_status(self.t("login_fail"), error=True)
 
     def rebuild(self):
