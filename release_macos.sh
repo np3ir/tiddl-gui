@@ -5,10 +5,16 @@
 #   ./release_macos.sh 1.1.0      # otra version
 #
 # Requisitos (una sola vez):
-#   xcode-select --install                       # toolchain de Apple
-#   brew install python ffmpeg cocoapods         # Python 3.10+, ffmpeg, pods
-#   pip3 install "git+https://github.com/np3ir/tiddl-elvigilante.git" \
-#                pyinstaller "flet[all]==0.86.1" tomlkit
+#   1. Xcode completo (App Store) y aceptar licencia:
+#        sudo xcodebuild -license accept
+#   2. Homebrew (si no lo tienes: https://brew.sh) y luego:
+#        brew install python ffmpeg cocoapods
+#   3. Entorno Python (el Python de brew es externally-managed, usa venv):
+#        python3 -m venv ~/tiddl-venv
+#        source ~/tiddl-venv/bin/activate
+#        pip install "git+https://github.com/np3ir/tiddl-elvigilante.git" \
+#                    pyinstaller "flet[all]==0.86.1" tomlkit
+#   Correr este script SIEMPRE con el venv activado.
 #
 # Resultado: dist-mac/tiddl-ElVigilante-<version>-macos.dmg
 # Nota Gatekeeper: app sin firmar -> primera apertura con click derecho > Open
