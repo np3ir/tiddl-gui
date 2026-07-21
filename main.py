@@ -582,6 +582,10 @@ class TiddlGui:
         env = dict(
             os.environ, PYTHONIOENCODING="utf-8", COLUMNS="400", PYTHONUNBUFFERED="1"
         )
+        # Pin the CLI config to the user profile: the bundled tiddl runs from
+        # the install dir (e.g. Program Files), where its portable-mode
+        # exe-side config would not be writable.
+        env.setdefault("TIDDL_PATH", str(Path.home() / ".tiddl"))
         # Bundled ffmpeg sits next to the tiddl binary; POSIX exec only
         # searches PATH (and Finder-launched apps get a minimal one), so
         # prepend that folder explicitly. Harmless on Windows too.
