@@ -1,0 +1,1514 @@
+"""tiddl GUI - Flet frontend for the tiddl-elvigilante downloader.
+
+Paste TIDAL links, pick quality, download. A Settings tab exposes paths,
+naming templates and performance options, QBDLX-style. The heavy lifting is
+done by the existing `tiddl` CLI run as a subprocess, so every core feature
+(skip database, metadata enrichment, retries, delays) works unchanged.
+Settings are passed as CLI flags per run; "Save as defaults" writes them
+back to tiddl's own config.toml (with a timestamped backup).
+UI language is switchable (English/Spanish), persisted in gui.json.
+"""
+
+from __future__ import annotations
+
+import datetime
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import flet as ft
+import tomlkit
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python < 3.11
+    tomllib = None
+
+QUALITIES = ["low", "normal", "high", "max"]
+SINGLES_FILTERS = ["none", "only", "include"]
+VIDEOS_FILTERS = ["none", "allow", "only"]
+
+ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(\x07|\x1b\\)")
+BOX_CHARS = set("╭╮╰╯│─┌┐└┘━┏┓┗┛┃┤├")
+TOTAL_RE = re.compile(r"Total downloads:\s*(\d+)")
+# Combined TIDAL link: .../album/<id>/track/<id>
+COMBO_RE = re.compile(r"(album/\d+)/track/(\d+)")
+# "[n/total] type/id" heartbeat printed by expanded runs (--albums/--artists/--tracks)
+HEART_RE = re.compile(r"^\[(\d+)/(\d+)\]\s")
+# "0.04s ... 12/537" frames from the CLI's own Total Progress bar
+PROG_FRAME_RE = re.compile(r"^[\d.]+s\b.*?(\d+)/(\d+)")
+# Rich braille spinner characters (in-flight track frames)
+SPINNER_RE = re.compile(r"[⠀-⣿]")
+
+TEMPLATE_VARS = (
+    "{item.title} {item.artist} {item.artists} {item.number} "
+    "{album.artist} {album.title} {album.date:%Y} {playlist.title} {quality}"
+)
+
+STRINGS: dict[str, dict[str, str]] = {
+    "en": {
+        "tab_download": "Download",
+        "tab_settings": "Settings",
+        "links_label": "TIDAL links",
+        "links_hint": "Paste one or more links (track / album / playlist / artist / mix), one per line",
+        "quality": "Quality",
+        "redownload": "Re-download existing files",
+        "btn_download": "Download",
+        "btn_cancel": "Cancel",
+        "ready": "Ready",
+        "err_no_tiddl": "ERROR: tiddl executable not found on PATH",
+        "browse": "Browse",
+        "sec_folders": "Folders",
+        "dl_folder": "Download folder",
+        "dl_folder_hint": "Where music is saved",
+        "scan_folder": "Scan folder",
+        "scan_folder_hint": "Where existing downloads are detected (usually same as above)",
+        "video_folder": "Video folder",
+        "video_folder_hint": "Optional - overrides download folder for videos",
+        "playlist_folder": "Playlist folder",
+        "playlist_folder_hint": "Optional - playlists download here instead (can be another disk)",
+        "sec_naming": "File naming",
+        "tpl_vars": "Variables: " + TEMPLATE_VARS,
+        "tpl_default": "Default template",
+        "tpl_track": "Track template",
+        "tpl_album": "Album template",
+        "tpl_playlist": "Playlist template",
+        "tpl_video": "Video template",
+        "sec_perf": "Performance and filters",
+        "embed_lyrics_cb": "Embed lyrics in tags",
+        "save_lrc_cb": "Save .lrc lyrics file",
+        "threads": "Threads",
+        "track_delay": "Track delay (s)",
+        "album_delay": "Album delay (s)",
+        "singles": "Artist singles",
+        "videos": "Videos",
+        "language": "Language",
+        "theme": "Theme",
+        "theme_dark": "Dark",
+        "theme_light": "Light",
+        "font_size": "Font size",
+        "font_normal": "Normal",
+        "font_large": "Large",
+        "font_xlarge": "Extra large",
+        "font_locked": "Finish or cancel the download before changing font size",
+        "theme_locked": "Finish or cancel the download before changing theme",
+        "save_defaults": "Save as defaults",
+        "reload": "Reload",
+        "reloaded": "Reloaded from config.toml",
+        "saved": "Saved to {path} (backup created)",
+        "save_failed": "Save failed: {err}",
+        "invalid_number": "Invalid number in Settings (threads/delays)",
+        "invalid_number_short": "Invalid number in threads/delays",
+        "footer": (
+            "Settings apply to every download started from this window. "
+            "\"Save as defaults\" also writes them to tiddl's config.toml (backup created), "
+            "so the command line uses them too."
+        ),
+        "lang_locked": "Finish or cancel the download before changing language",
+        "paste_link": "Paste at least one TIDAL link",
+        "dlg_playlist_title": "Playlist link detected",
+        "dlg_playlist_q": "How do you want to download it?",
+        "opt_playlist": "As playlist",
+        "opt_playlist_d": "Playlist template and folder, m3u if enabled",
+        "opt_albums": "Full albums",
+        "opt_albums_d": "The complete album of every track (deduped)",
+        "opt_artists": "Artist discographies",
+        "opt_artists_d": "Everything by every credited artist - can be A LOT",
+        "opt_tracks": "Only the tracks",
+        "opt_tracks_d": "Each track standalone, track template and folders",
+        "dlg_artist_title": "Artist download options",
+        "dlg_artist_msg": "{n} artist link(s) - the FULL discography of each one will be downloaded.",
+        "dlg_artist_msg_expand": (
+            "Every credited artist in the playlist gets their full discography - "
+            "this can be hundreds of albums."
+        ),
+        "btn_continue": "Continue",
+        "dlg_combo_title": "Album link with a track",
+        "dlg_combo_q": "This link points to a specific track inside an album.\nWhat do you want to download?",
+        "opt_full_album": "Full album",
+        "opt_only_track": "Only that track",
+        "btn_login": "Log in to TIDAL",
+        "login_needed": "Not logged in to TIDAL - click 'Log in to TIDAL' to authenticate",
+        "login_wait": "Complete the login in your browser...",
+        "login_ok": "Logged in to TIDAL",
+        "login_fail": "Login failed or expired - try again",
+        "lock_busy_title": "Another window is downloading",
+        "lock_busy_msg": (
+            "To protect your TIDAL account from rate limits, only one window "
+            "may download at a time. Wait for the other download to finish, "
+            "or cancel it in that window."
+        ),
+        "lock_startup_warn": "Another window is already downloading - only one download at a time",
+        "starting": "Starting download...",
+        "run_sep": "--- Run {i}/{n} ---",
+        "cancelled": "Cancelled",
+        "cancelled_n": "Cancelled - {n} download(s) completed",
+        "done_n": "Done - {n} download(s)",
+        "errors_n": "Finished with errors (exit {c}) - {n} download(s)",
+        "error": "Error: {e}",
+    },
+    "es": {
+        "tab_download": "Descargar",
+        "tab_settings": "Ajustes",
+        "links_label": "Links de TIDAL",
+        "links_hint": "Pega uno o más links (track / álbum / playlist / artista / mix), uno por línea",
+        "quality": "Calidad",
+        "redownload": "Re-descargar archivos existentes",
+        "btn_download": "Descargar",
+        "btn_cancel": "Cancelar",
+        "ready": "Listo",
+        "err_no_tiddl": "ERROR: no se encontró el ejecutable tiddl en el PATH",
+        "browse": "Elegir",
+        "sec_folders": "Carpetas",
+        "dl_folder": "Carpeta de descarga",
+        "dl_folder_hint": "Dónde se guarda la música",
+        "scan_folder": "Carpeta de escaneo",
+        "scan_folder_hint": "Dónde se detectan las descargas existentes (normalmente la misma de arriba)",
+        "video_folder": "Carpeta de videos",
+        "video_folder_hint": "Opcional - reemplaza la carpeta de descarga para videos",
+        "playlist_folder": "Carpeta de playlists",
+        "playlist_folder_hint": "Opcional - las playlists se descargan aquí (puede ser otro disco)",
+        "sec_naming": "Nombres de archivo",
+        "tpl_vars": "Variables: " + TEMPLATE_VARS,
+        "tpl_default": "Template por defecto",
+        "tpl_track": "Template de track",
+        "tpl_album": "Template de álbum",
+        "tpl_playlist": "Template de playlist",
+        "tpl_video": "Template de video",
+        "sec_perf": "Rendimiento y filtros",
+        "embed_lyrics_cb": "Incrustar letras en los tags",
+        "save_lrc_cb": "Guardar archivo de letras .lrc",
+        "threads": "Hilos",
+        "track_delay": "Delay por track (s)",
+        "album_delay": "Delay por álbum (s)",
+        "singles": "Singles de artista",
+        "videos": "Videos",
+        "language": "Idioma",
+        "theme": "Tema",
+        "theme_dark": "Oscuro",
+        "theme_light": "Claro",
+        "font_size": "Tamaño de letra",
+        "font_normal": "Normal",
+        "font_large": "Grande",
+        "font_xlarge": "Extra grande",
+        "font_locked": "Termina o cancela la descarga antes de cambiar el tamaño de letra",
+        "theme_locked": "Termina o cancela la descarga antes de cambiar el tema",
+        "save_defaults": "Guardar como default",
+        "reload": "Recargar",
+        "reloaded": "Recargado desde config.toml",
+        "saved": "Guardado en {path} (backup creado)",
+        "save_failed": "Error al guardar: {err}",
+        "invalid_number": "Número inválido en Ajustes (hilos/delays)",
+        "invalid_number_short": "Número inválido en hilos/delays",
+        "footer": (
+            "Los ajustes aplican a cada descarga iniciada desde esta ventana. "
+            "\"Guardar como default\" también los escribe en el config.toml de tiddl "
+            "(con backup), así la línea de comandos usa los mismos valores."
+        ),
+        "lang_locked": "Termina o cancela la descarga antes de cambiar el idioma",
+        "paste_link": "Pega al menos un link de TIDAL",
+        "dlg_playlist_title": "Link de playlist detectado",
+        "dlg_playlist_q": "¿Cómo la quieres descargar?",
+        "opt_playlist": "Como playlist",
+        "opt_playlist_d": "Template y carpeta de playlist, m3u si está activado",
+        "opt_albums": "Álbumes completos",
+        "opt_albums_d": "El álbum completo de cada canción (sin duplicados)",
+        "opt_artists": "Discografías de artistas",
+        "opt_artists_d": "Todo de cada artista acreditado - puede ser MUCHÍSIMO",
+        "opt_tracks": "Solo las canciones",
+        "opt_tracks_d": "Cada canción suelta, con template y carpetas de track",
+        "dlg_artist_title": "Opciones de descarga de artista",
+        "dlg_artist_msg": "{n} link(s) de artista - se descargará la discografía COMPLETA de cada uno.",
+        "dlg_artist_msg_expand": (
+            "Cada artista acreditado en la playlist baja su discografía completa - "
+            "pueden ser cientos de álbumes."
+        ),
+        "btn_continue": "Continuar",
+        "dlg_combo_title": "Link de álbum con track",
+        "dlg_combo_q": "Este link apunta a una canción específica dentro de un álbum.\n¿Qué quieres descargar?",
+        "opt_full_album": "Álbum completo",
+        "opt_only_track": "Solo esa canción",
+        "btn_login": "Iniciar sesión en TIDAL",
+        "login_needed": "Sin sesión de TIDAL - usa 'Iniciar sesión en TIDAL' para autenticarte",
+        "login_wait": "Completa el login en tu navegador...",
+        "login_ok": "Sesión de TIDAL activa",
+        "login_fail": "El login falló o expiró - inténtalo de nuevo",
+        "lock_busy_title": "Otra ventana está descargando",
+        "lock_busy_msg": (
+            "Para proteger tu cuenta de TIDAL del rate limit, solo una ventana "
+            "puede descargar a la vez. Espera a que termine la otra descarga, "
+            "o cancélala en esa ventana."
+        ),
+        "lock_startup_warn": "Otra ventana ya está descargando - solo una descarga a la vez",
+        "starting": "Iniciando descarga...",
+        "run_sep": "--- Corrida {i}/{n} ---",
+        "cancelled": "Cancelado",
+        "cancelled_n": "Cancelado - {n} descarga(s) completadas",
+        "done_n": "Listo - {n} descarga(s)",
+        "errors_n": "Terminó con errores (exit {c}) - {n} descarga(s)",
+        "error": "Error: {e}",
+    },
+}
+
+# NP3IR exam-app (C:\radioaficionado lib/theme.dart) palettes:
+# violet primary; dark = near-black with dark-purple surfaces,
+# light = lavender background with purple text.
+PALETTES = {
+    "dark": {
+        "primary": "#7C3AED",       # kViolet
+        "primary_dark": "#6B21A8",  # kPurple
+        "on_primary": "#FFFFFF",
+        "bg": "#0A0A0F",            # kBlack
+        "surface": "#1A0A2E",       # kDarkPurple
+        "text": "#F8F4FF",          # kWhite
+        "gray": "#B794F4",          # kLavender (secondary text/hints)
+        "success": "#4ADE80",       # kGreen
+        "error": "#F87171",         # kRed
+    },
+    "light": {
+        "primary": "#7C3AED",       # kViolet
+        "primary_dark": "#6B21A8",  # kPurple
+        "on_primary": "#FFFFFF",
+        "bg": "#F5F0FF",            # kLightBg
+        "surface": "#EDE4FF",       # kLightSurface
+        "text": "#1A0A2E",          # kLightText
+        "gray": "#6B21A8",          # kLightSubtext
+        "success": "#15803D",
+        "error": "#B91C1C",
+    },
+}
+
+# Base text size per setting (log/status/now lines scale from this),
+# mirroring the exam app's font-medium/large/xlarge.
+FONT_SIZES = {"normal": 12, "large": 14, "xlarge": 17}
+
+# Settings fields preserved across a language-switch rebuild.
+STASH_FIELDS = [
+    "f_download_path", "f_scan_path", "f_video_path", "f_playlist_path",
+    "f_tpl_default", "f_tpl_track", "f_tpl_album", "f_tpl_playlist", "f_tpl_video",
+    "f_threads", "f_track_delay", "f_artist_delay", "f_singles", "f_videos",
+    "f_embed_lyrics", "f_save_lrc",
+]
+
+
+def config_file_path() -> Path:
+    base = os.environ.get("TIDDL_PATH") or str(Path.home() / ".tiddl")
+    return Path(base) / "config.toml"
+
+
+def gui_settings_path() -> Path:
+    """GUI-only settings (keys tiddl itself doesn't know about)."""
+    return config_file_path().parent / "gui.json"
+
+
+def load_gui_settings() -> dict:
+    try:
+        import json
+
+        return json.loads(gui_settings_path().read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def save_gui_settings(data: dict):
+    import json
+
+    path = gui_settings_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
+def find_tiddl() -> str | None:
+    """Locate the tiddl CLI: next to this app first (installed bundle),
+    then the working directory, then the system PATH (dev setup)."""
+    candidates = []
+    try:
+        candidates.append(Path(sys.executable).resolve().parent / "tiddl.exe")
+    except Exception:
+        pass
+    candidates.append(Path.cwd() / "tiddl.exe")
+    for candidate in candidates:
+        try:
+            if candidate.is_file():
+                return str(candidate)
+        except Exception:
+            continue
+    return shutil.which("tiddl")
+
+
+def download_lock_path() -> Path:
+    return config_file_path().parent / "gui.lock"
+
+
+def _pid_alive(pid: int) -> bool:
+    """Check liveness via OpenProcess (os.kill(pid, 0) is unsafe on Windows)."""
+    import ctypes
+
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    STILL_ACTIVE = 259
+    handle = ctypes.windll.kernel32.OpenProcess(
+        PROCESS_QUERY_LIMITED_INFORMATION, False, pid
+    )
+    if not handle:
+        return False
+    try:
+        code = ctypes.c_ulong()
+        if ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return code.value == STILL_ACTIVE
+        return False
+    finally:
+        ctypes.windll.kernel32.CloseHandle(handle)
+
+
+def other_instance_downloading() -> bool:
+    """True if a different GUI window holds the download lock and is alive."""
+    try:
+        pid = int(download_lock_path().read_text(encoding="utf-8").strip())
+    except Exception:
+        return False
+    return pid != os.getpid() and _pid_alive(pid)
+
+
+def acquire_download_lock():
+    path = download_lock_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(str(os.getpid()), encoding="utf-8")
+
+
+def release_download_lock():
+    try:
+        path = download_lock_path()
+        if int(path.read_text(encoding="utf-8").strip()) == os.getpid():
+            path.unlink()
+    except Exception:
+        pass
+
+
+def load_tiddl_config() -> dict:
+    cfg_file = config_file_path()
+    if tomllib and cfg_file.exists():
+        try:
+            return tomllib.loads(cfg_file.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
+
+
+def meaningful_line(raw: str) -> str | None:
+    """Filter one line of CLI output down to what a human wants to read.
+
+    The CLI forces a rich terminal, so piped output still contains ANSI
+    cursor codes and repeated Live-panel frames (borders, progress bars).
+    """
+    line = ANSI_RE.sub("", raw).rstrip()
+    # Strip the Windows long-path prefix, visual noise only.
+    line = line.replace("\\\\?\\UNC\\", "\\\\").replace("\\\\?\\", "")
+    s = line.strip()
+    if not s:
+        return None
+    # Panel borders / content frames and progress-bar frames.
+    if s[0] in BOX_CHARS:
+        return None
+    if re.match(r"^[\d.]+s\b", s):
+        return None
+    return s
+
+
+class TiddlGui:
+    def __init__(self, page: ft.Page):
+        self.page = page
+        self.proc: subprocess.Popen | None = None
+        self.running = False
+        self.cancelled = False
+        self._log_buffer: list[tuple[str, str]] = []
+        self._log_last_flush = 0.0
+        self.cfg = load_tiddl_config()
+        self.tiddl_exe = find_tiddl()
+        gui_cfg = load_gui_settings()
+        self.lang = gui_cfg.get("language", "en")
+        if self.lang not in STRINGS:
+            self.lang = "en"
+        self.theme_name = gui_cfg.get("theme", "dark")
+        if self.theme_name not in PALETTES:
+            self.theme_name = "dark"
+        self.font_name = gui_cfg.get("font_size", "normal")
+        if self.font_name not in FONT_SIZES:
+            self.font_name = "normal"
+        self.build()
+
+    @property
+    def pal(self) -> dict:
+        return PALETTES[self.theme_name]
+
+    @property
+    def fs(self) -> int:
+        return FONT_SIZES[self.font_name]
+
+    def t(self, key: str, **kwargs) -> str:
+        text = STRINGS.get(self.lang, {}).get(key) or STRINGS["en"].get(key, key)
+        return text.format(**kwargs) if kwargs else text
+
+    def refresh(self, *controls):
+        """Thread-safe page.update(), optionally scoped to specific controls.
+
+        Flet queues outbound patches with asyncio's put_nowait; called from a
+        worker thread that does NOT wake the sleeping event loop, so updates
+        only render when some client event (e.g. a window resize) arrives.
+        call_soon_threadsafe wakes the loop properly. Scoping the patch to the
+        changed control keeps heavy phases (log floods) from freezing the UI.
+        """
+
+        def do():
+            if controls:
+                self.page.update(*controls)
+            else:
+                self.page.update()
+
+        try:
+            loop = self.page.session.connection.loop
+            loop.call_soon_threadsafe(do)
+        except Exception:
+            do()
+
+    # ---------- config helpers ----------
+
+    def cfg_dl(self, key: str, default=""):
+        dl = self.cfg.get("download", {})
+        return dl.get(key, default) if isinstance(dl, dict) else default
+
+    def cfg_tpl(self, key: str, default=""):
+        tpl = self.cfg.get("templates", {})
+        return tpl.get(key, default) if isinstance(tpl, dict) else default
+
+    def cfg_meta(self, key: str, default=False):
+        meta = self.cfg.get("metadata", {})
+        return meta.get(key, default) if isinstance(meta, dict) else default
+
+    # ---------- UI ----------
+
+    GITHUB_URL = "https://github.com/np3ir/tiddl-elvigilante"
+
+    def build(self):
+        p = self.page
+        p.title = "tiddl by ElVigilante - TIDAL Downloader"
+        p.window.width = 900
+        p.window.height = 820
+        p.padding = 12
+
+        exam_theme = ft.Theme(
+            color_scheme=ft.ColorScheme(
+                primary=self.pal["primary"],
+                on_primary=self.pal["on_primary"],
+                primary_container=self.pal["primary_dark"],
+                secondary=self.pal["primary_dark"],
+                surface=self.pal["bg"],
+                on_surface=self.pal["text"],
+                surface_container_highest=self.pal["surface"],
+                outline=self.pal["gray"],
+                outline_variant=self.pal["primary"],
+                error=self.pal["error"],
+            )
+        )
+        p.theme = exam_theme
+        p.dark_theme = exam_theme
+        p.theme_mode = (
+            ft.ThemeMode.DARK if self.theme_name == "dark" else ft.ThemeMode.LIGHT
+        )
+
+        if not hasattr(self, "file_picker"):
+            self.file_picker = ft.FilePicker()
+            p.services.append(self.file_picker)
+
+        download_tab = self.build_download_tab()
+        settings_tab = self.build_settings_tab()
+
+        p.add(
+            ft.Tabs(
+                length=2,
+                expand=True,
+                content=ft.Column(
+                    [
+                        ft.TabBar(
+                            tabs=[
+                                ft.Tab(label=self.t("tab_download"), icon=ft.Icons.DOWNLOAD),
+                                ft.Tab(label=self.t("tab_settings"), icon=ft.Icons.SETTINGS),
+                            ]
+                        ),
+                        ft.TabBarView(
+                            expand=True,
+                            controls=[download_tab, settings_tab],
+                        ),
+                    ],
+                    expand=True,
+                ),
+            )
+        )
+
+        if not self.tiddl_exe:
+            self.set_status(self.t("err_no_tiddl"), error=True)
+            self.download_btn.disabled = True
+        elif other_instance_downloading():
+            self.set_status(self.t("lock_startup_warn"))
+        else:
+            self.page.run_thread(self.check_auth)
+        p.update()
+
+    # ---------- auth ----------
+
+    def _cli_env(self) -> dict:
+        return dict(
+            os.environ, PYTHONIOENCODING="utf-8", COLUMNS="400", PYTHONUNBUFFERED="1"
+        )
+
+    def check_auth(self):
+        """Probe auth state; tiddl has no /me endpoint, the refresh output is
+        the source of truth (same technique as the LAUNCHER.BAT hardening)."""
+        try:
+            out = subprocess.run(
+                [self.tiddl_exe, "auth", "refresh"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                env=self._cli_env(), timeout=60,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            text = ANSI_RE.sub("", (out.stdout or "") + (out.stderr or ""))
+        except Exception:
+            return
+        if "Not logged in" in text or "log in" in text.lower():
+            self.login_btn.visible = True
+            self.set_status(self.t("login_needed"), error=True)
+        else:
+            for line in text.splitlines():
+                if line.strip().startswith("Auth token"):
+                    self.set_status(line.strip())
+                    break
+
+    def on_login(self, e):
+        self.login_btn.disabled = True
+        self.set_status(self.t("login_wait"))
+        self.page.run_thread(self.login_worker)
+
+    def login_worker(self):
+        success = False
+        try:
+            proc = subprocess.Popen(
+                [self.tiddl_exe, "auth", "login"],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, encoding="utf-8", errors="replace", bufsize=1,
+                env=self._cli_env(),
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            assert proc.stdout is not None
+            for raw in proc.stdout:
+                line = ANSI_RE.sub("", raw).strip()
+                if "Go to" in line:
+                    m = re.search(r"https://\S+", line)
+                    if m:
+                        url = m.group().strip("'\"!.,")
+                        loop = self.page.session.connection.loop
+                        loop.call_soon_threadsafe(self.page.launch_url, url)
+                        self.set_status(self.t("login_wait"))
+                if "Logged in" in line:
+                    success = True
+            proc.wait()
+        except Exception:
+            pass
+
+        self.login_btn.disabled = False
+        if success:
+            self.login_btn.visible = False
+            self.set_status(self.t("login_ok"))
+            self.cfg = load_tiddl_config()
+            self.check_auth()
+        else:
+            self.set_status(self.t("login_fail"), error=True)
+
+    def rebuild(self):
+        """Rebuild the whole UI (language switch), preserving field values."""
+        stash = {name: getattr(self, name).value for name in STASH_FIELDS if hasattr(self, name)}
+        stash["urls"] = self.urls_field.value
+        stash["quality"] = self.quality_dd.value
+        stash["noskip"] = self.noskip_cb.value
+
+        self.page.controls.clear()
+        self.build()
+
+        for name, value in stash.items():
+            if name == "urls":
+                self.urls_field.value = value
+            elif name == "quality":
+                self.quality_dd.value = value
+            elif name == "noskip":
+                self.noskip_cb.value = value
+            elif hasattr(self, name):
+                getattr(self, name).value = value
+        self.refresh()
+
+    def build_download_tab(self) -> ft.Control:
+        self.urls_field = ft.TextField(
+            label=self.t("links_label"),
+            hint_text=self.t("links_hint"),
+            multiline=True,
+            min_lines=3,
+            max_lines=6,
+            autofocus=True,
+        )
+
+        quality = self.cfg_dl("track_quality", "high")
+        self.quality_dd = ft.Dropdown(
+            label=self.t("quality"),
+            width=160,
+            value=quality if quality in QUALITIES else "high",
+            options=[ft.DropdownOption(q) for q in QUALITIES],
+        )
+
+        self.noskip_cb = ft.Checkbox(label=self.t("redownload"), value=False)
+
+        self.download_btn = ft.FilledButton(
+            content=self.t("btn_download"),
+            icon=ft.Icons.DOWNLOAD,
+            on_click=self.on_download,
+        )
+        self.login_btn = ft.FilledButton(
+            content=self.t("btn_login"),
+            icon=ft.Icons.LOGIN,
+            on_click=self.on_login,
+            visible=False,
+        )
+        self.cancel_btn = ft.OutlinedButton(
+            content=self.t("btn_cancel"),
+            icon=ft.Icons.CLOSE,
+            on_click=self.on_cancel,
+            disabled=True,
+        )
+
+        self.status_text = ft.Text(self.t("ready"), size=self.fs + 1, weight=ft.FontWeight.BOLD)
+        self.progress = ft.ProgressBar(value=0, expand=True)
+        self.progress_label = ft.Text("", size=self.fs, weight=ft.FontWeight.BOLD)
+        self.progress_row = ft.Row(
+            [self.progress, self.progress_label],
+            visible=False,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+        self.now_text = ft.Text("", size=self.fs, color=ft.Colors.PRIMARY)
+        self.log_view = ft.ListView(expand=True, spacing=0, auto_scroll=True)
+
+        return ft.Column(
+            [
+                ft.Container(height=4),
+                self.urls_field,
+                ft.Row(
+                    [
+                        self.quality_dd,
+                        self.noskip_cb,
+                        ft.Container(expand=True),
+                        self.login_btn,
+                        self.download_btn,
+                        self.cancel_btn,
+                    ],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                self.status_text,
+                self.progress_row,
+                self.now_text,
+                ft.Container(
+                    content=self.log_view,
+                    expand=True,
+                    border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+                    border_radius=8,
+                    padding=8,
+                ),
+            ],
+            expand=True,
+            spacing=10,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+        )
+
+    def build_settings_tab(self) -> ft.Control:
+        def path_row(label: str, value, hint: str = "") -> tuple[ft.TextField, ft.Row]:
+            field = ft.TextField(label=label, value=str(value or ""), hint_text=hint, expand=True)
+
+            async def browse(e, f=field):
+                path = await self.file_picker.get_directory_path()
+                if path:
+                    f.value = path
+                    self.refresh()
+
+            row = ft.Row(
+                [field, ft.OutlinedButton(content=self.t("browse"), icon=ft.Icons.FOLDER_OPEN, on_click=browse)],
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            )
+            return field, row
+
+        self.f_download_path, dl_row = path_row(
+            self.t("dl_folder"), self.cfg_dl("download_path"), self.t("dl_folder_hint")
+        )
+        self.f_scan_path, scan_row = path_row(
+            self.t("scan_folder"), self.cfg_dl("scan_path"), self.t("scan_folder_hint")
+        )
+        self.f_video_path, video_row = path_row(
+            self.t("video_folder"), self.cfg_dl("video_download_path"), self.t("video_folder_hint")
+        )
+        gui_cfg = load_gui_settings()
+        self.f_playlist_path, playlist_row = path_row(
+            self.t("playlist_folder"),
+            gui_cfg.get("playlist_download_path", ""),
+            self.t("playlist_folder_hint"),
+        )
+
+        self.f_tpl_default = ft.TextField(
+            label=self.t("tpl_default"), value=str(self.cfg_tpl("default", "")),
+            hint_text="{album.artist}/{album.title}/{item.title}",
+        )
+        self.f_tpl_track = ft.TextField(label=self.t("tpl_track"), value=str(self.cfg_tpl("track", "")))
+        self.f_tpl_album = ft.TextField(label=self.t("tpl_album"), value=str(self.cfg_tpl("album", "")))
+        self.f_tpl_playlist = ft.TextField(label=self.t("tpl_playlist"), value=str(self.cfg_tpl("playlist", "")))
+        self.f_tpl_video = ft.TextField(label=self.t("tpl_video"), value=str(self.cfg_tpl("video", "")))
+
+        self.f_threads = ft.TextField(
+            label=self.t("threads"), value=str(self.cfg_dl("threads_count", 1)), width=110
+        )
+        self.f_track_delay = ft.TextField(
+            label=self.t("track_delay"), value=str(self.cfg_dl("track_delay", 3.0)), width=150
+        )
+        self.f_artist_delay = ft.TextField(
+            label=self.t("album_delay"), value=str(self.cfg_dl("artist_delay", 8.0)), width=150
+        )
+
+        singles = self.cfg_dl("singles_filter", "none")
+        self.f_singles = ft.Dropdown(
+            label=self.t("singles"),
+            width=170,
+            value=singles if singles in SINGLES_FILTERS else "none",
+            options=[ft.DropdownOption(v) for v in SINGLES_FILTERS],
+        )
+        videos = self.cfg_dl("videos_filter", "none")
+        self.f_videos = ft.Dropdown(
+            label=self.t("videos"),
+            width=170,
+            value=videos if videos in VIDEOS_FILTERS else "none",
+            options=[ft.DropdownOption(v) for v in VIDEOS_FILTERS],
+        )
+
+        self.f_embed_lyrics = ft.Checkbox(
+            label=self.t("embed_lyrics_cb"), value=bool(self.cfg_meta("embed_lyrics"))
+        )
+        self.f_save_lrc = ft.Checkbox(
+            label=self.t("save_lrc_cb"), value=bool(self.cfg_meta("save_lyrics"))
+        )
+
+        self.lang_dd = ft.Dropdown(
+            label=self.t("language"),
+            width=170,
+            value=self.lang,
+            options=[
+                ft.DropdownOption("en", "English"),
+                ft.DropdownOption("es", "Español"),
+            ],
+            on_select=self.on_language_change,
+        )
+
+        self.theme_dd = ft.Dropdown(
+            label=self.t("theme"),
+            width=140,
+            value=self.theme_name,
+            options=[
+                ft.DropdownOption("dark", self.t("theme_dark")),
+                ft.DropdownOption("light", self.t("theme_light")),
+            ],
+            on_select=self.on_theme_change,
+        )
+
+        self.font_dd = ft.Dropdown(
+            label=self.t("font_size"),
+            width=160,
+            value=self.font_name,
+            options=[
+                ft.DropdownOption("normal", self.t("font_normal")),
+                ft.DropdownOption("large", self.t("font_large")),
+                ft.DropdownOption("xlarge", self.t("font_xlarge")),
+            ],
+            on_select=self.on_font_change,
+        )
+
+        self.settings_status = ft.Text("", size=12)
+
+        def section(title: str, controls: list[ft.Control], expanded: bool = True) -> ft.Control:
+            """Collapsible section; fields inside stretch to the window width."""
+            return ft.ExpansionTile(
+                title=ft.Text(title, size=14, weight=ft.FontWeight.BOLD),
+                expanded=expanded,
+                maintain_state=True,
+                controls=[
+                    ft.Container(
+                        content=ft.Column(
+                            controls,
+                            spacing=8,
+                            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                        ),
+                        padding=ft.Padding.only(left=8, right=8, bottom=12),
+                    )
+                ],
+            )
+
+        return ft.Column(
+            [
+                ft.Container(height=4),
+                section(self.t("sec_folders"), [dl_row, scan_row, video_row, playlist_row]),
+                section(
+                    self.t("sec_naming"),
+                    [
+                        ft.Text(self.t("tpl_vars"), size=11, color=ft.Colors.OUTLINE),
+                        self.f_tpl_default,
+                        self.f_tpl_track,
+                        self.f_tpl_album,
+                        self.f_tpl_playlist,
+                        self.f_tpl_video,
+                    ],
+                ),
+                section(
+                    self.t("sec_perf"),
+                    [
+                        ft.Row(
+                            [self.f_threads, self.f_track_delay, self.f_artist_delay, self.f_singles, self.f_videos],
+                            wrap=True,
+                        ),
+                        ft.Row([self.f_embed_lyrics, self.f_save_lrc], wrap=True),
+                    ],
+                ),
+                ft.Container(height=10),
+                ft.Row(
+                    [
+                        ft.FilledButton(content=self.t("save_defaults"), icon=ft.Icons.SAVE, on_click=self.on_save_defaults),
+                        ft.OutlinedButton(content=self.t("reload"), icon=ft.Icons.REFRESH, on_click=self.on_reload_settings),
+                        self.lang_dd,
+                        self.theme_dd,
+                        self.font_dd,
+                        ft.TextButton(
+                            content="GitHub",
+                            icon=ft.Icons.OPEN_IN_NEW,
+                            on_click=lambda e: self.page.launch_url(self.GITHUB_URL),
+                        ),
+                        self.settings_status,
+                    ],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    wrap=True,
+                ),
+                ft.Text(
+                    self.t("footer"),
+                    size=11,
+                    color=ft.Colors.OUTLINE,
+                ),
+            ],
+            expand=True,
+            spacing=8,
+            scroll=ft.ScrollMode.AUTO,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+        )
+
+    def on_language_change(self, e):
+        new_lang = self.lang_dd.value or "en"
+        if new_lang == self.lang:
+            return
+        if self.running:
+            self.lang_dd.value = self.lang
+            self.settings_status.value = self.t("lang_locked")
+            self.refresh()
+            return
+        self.lang = new_lang
+        gui_cfg = load_gui_settings()
+        gui_cfg["language"] = new_lang
+        save_gui_settings(gui_cfg)
+        self.rebuild()
+
+    def on_theme_change(self, e):
+        new_theme = self.theme_dd.value or "dark"
+        if new_theme == self.theme_name:
+            return
+        if self.running:
+            self.theme_dd.value = self.theme_name
+            self.settings_status.value = self.t("theme_locked")
+            self.refresh()
+            return
+        self.theme_name = new_theme
+        gui_cfg = load_gui_settings()
+        gui_cfg["theme"] = new_theme
+        save_gui_settings(gui_cfg)
+        self.rebuild()
+
+    def on_font_change(self, e):
+        new_font = self.font_dd.value or "normal"
+        if new_font == self.font_name:
+            return
+        if self.running:
+            self.font_dd.value = self.font_name
+            self.settings_status.value = self.t("font_locked")
+            self.refresh()
+            return
+        self.font_name = new_font
+        gui_cfg = load_gui_settings()
+        gui_cfg["font_size"] = new_font
+        save_gui_settings(gui_cfg)
+        self.rebuild()
+
+    # ---------- settings helpers ----------
+
+    def numeric_settings(self) -> tuple[int, float, float] | None:
+        try:
+            threads = max(1, int((self.f_threads.value or "1").strip()))
+            track_delay = float((self.f_track_delay.value or "0").strip())
+            artist_delay = float((self.f_artist_delay.value or "0").strip())
+            return threads, track_delay, artist_delay
+        except ValueError:
+            return None
+
+    def settings_flags(
+        self,
+        base_override: str | None = None,
+        singles: str | None = None,
+        videos: str | None = None,
+    ) -> list[str] | None:
+        """Build CLI flags from the Settings tab.
+
+        base_override replaces the download AND scan folders - used to send
+        playlists to their own folder (possibly another disk). singles/videos
+        override the Settings values for this run (artist dialog).
+        """
+        nums = self.numeric_settings()
+        if nums is None:
+            self.set_status(self.t("invalid_number"), error=True)
+            return None
+        threads, track_delay, artist_delay = nums
+
+        flags: list[str] = ["-t", str(threads), "-td", str(track_delay), "-d", str(artist_delay)]
+        singles_val = singles or self.f_singles.value
+        videos_val = videos or self.f_videos.value
+        if singles_val:
+            flags += ["-s", singles_val]
+        if videos_val:
+            flags += ["-vid", videos_val]
+
+        flags.append("--embed-lyrics" if self.f_embed_lyrics.value else "--no-embed-lyrics")
+        flags.append("--save-lyrics" if self.f_save_lrc.value else "--no-save-lyrics")
+
+        download_path = base_override or (self.f_download_path.value or "").strip()
+        scan_path = base_override or (self.f_scan_path.value or "").strip()
+        if download_path:
+            flags += ["-p", download_path]
+        if scan_path:
+            flags += ["--sp", scan_path]
+
+        for flag, field in [
+            ("-vp", self.f_video_path),
+            ("-o", self.f_tpl_default),
+            ("--ttf", self.f_tpl_track),
+            ("--atf", self.f_tpl_album),
+            ("--ptf", self.f_tpl_playlist),
+            ("--vtf", self.f_tpl_video),
+        ]:
+            value = (field.value or "").strip()
+            if value:
+                flags += [flag, value]
+        return flags
+
+    def on_reload_settings(self, e):
+        self.cfg = load_tiddl_config()
+        self.f_download_path.value = str(self.cfg_dl("download_path") or "")
+        self.f_scan_path.value = str(self.cfg_dl("scan_path") or "")
+        self.f_video_path.value = str(self.cfg_dl("video_download_path") or "")
+        self.f_playlist_path.value = str(load_gui_settings().get("playlist_download_path", ""))
+        self.f_tpl_default.value = str(self.cfg_tpl("default", ""))
+        self.f_tpl_track.value = str(self.cfg_tpl("track", ""))
+        self.f_tpl_album.value = str(self.cfg_tpl("album", ""))
+        self.f_tpl_playlist.value = str(self.cfg_tpl("playlist", ""))
+        self.f_tpl_video.value = str(self.cfg_tpl("video", ""))
+        self.f_threads.value = str(self.cfg_dl("threads_count", 1))
+        self.f_track_delay.value = str(self.cfg_dl("track_delay", 3.0))
+        self.f_artist_delay.value = str(self.cfg_dl("artist_delay", 8.0))
+        self.f_singles.value = self.cfg_dl("singles_filter", "none")
+        self.f_videos.value = self.cfg_dl("videos_filter", "none")
+        self.f_embed_lyrics.value = bool(self.cfg_meta("embed_lyrics"))
+        self.f_save_lrc.value = bool(self.cfg_meta("save_lyrics"))
+        self.settings_status.value = self.t("reloaded")
+        self.refresh()
+
+    def on_save_defaults(self, e):
+        nums = self.numeric_settings()
+        if nums is None:
+            self.settings_status.value = self.t("invalid_number_short")
+            self.refresh()
+            return
+        threads, track_delay, artist_delay = nums
+
+        cfg_path = config_file_path()
+        try:
+            if cfg_path.exists():
+                stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+                shutil.copy2(cfg_path, cfg_path.with_name(f"config.toml.bak_{stamp}"))
+                doc = tomlkit.parse(cfg_path.read_text(encoding="utf-8"))
+            else:
+                cfg_path.parent.mkdir(parents=True, exist_ok=True)
+                doc = tomlkit.document()
+
+            if "download" not in doc:
+                doc["download"] = tomlkit.table()
+            dl = doc["download"]
+            dl["track_quality"] = self.quality_dd.value or "high"
+            dl["threads_count"] = threads
+            dl["track_delay"] = track_delay
+            dl["artist_delay"] = artist_delay
+            dl["singles_filter"] = self.f_singles.value or "none"
+            dl["videos_filter"] = self.f_videos.value or "none"
+            for key, field in [
+                ("download_path", self.f_download_path),
+                ("scan_path", self.f_scan_path),
+                ("video_download_path", self.f_video_path),
+            ]:
+                value = (field.value or "").strip()
+                if value:
+                    dl[key] = value
+
+            if "metadata" not in doc:
+                doc["metadata"] = tomlkit.table()
+            doc["metadata"]["embed_lyrics"] = bool(self.f_embed_lyrics.value)
+            doc["metadata"]["save_lyrics"] = bool(self.f_save_lrc.value)
+
+            if "templates" not in doc:
+                doc["templates"] = tomlkit.table()
+            tpl = doc["templates"]
+            for key, field in [
+                ("default", self.f_tpl_default),
+                ("track", self.f_tpl_track),
+                ("album", self.f_tpl_album),
+                ("playlist", self.f_tpl_playlist),
+                ("video", self.f_tpl_video),
+            ]:
+                tpl[key] = (field.value or "").strip()
+
+            cfg_path.write_text(tomlkit.dumps(doc), encoding="utf-8")
+
+            # GUI-only keys live in gui.json, not in tiddl's config.
+            gui_cfg = load_gui_settings()
+            gui_cfg["playlist_download_path"] = (self.f_playlist_path.value or "").strip()
+            gui_cfg["language"] = self.lang
+            gui_cfg["theme"] = self.theme_name
+            gui_cfg["font_size"] = self.font_name
+            save_gui_settings(gui_cfg)
+
+            self.cfg = load_tiddl_config()
+            self.settings_status.value = self.t("saved", path=cfg_path)
+        except Exception as ex:
+            self.settings_status.value = self.t("save_failed", err=ex)
+        self.refresh()
+
+    # ---------- status / log ----------
+
+    def set_status(self, text: str, error: bool = False):
+        self.status_text.value = text
+        self.status_text.color = self.pal["error"] if error else None
+        self.refresh(self.status_text)
+
+    def log(self, line: str):
+        """Buffer log lines and flush in batches - one UI patch per line at
+        hundreds of lines/second floods the event loop and freezes the UI."""
+        stamp = datetime.datetime.now().strftime("%H:%M:%S")
+        self._log_buffer.append((stamp, line))
+        now = time.monotonic()
+        if now - self._log_last_flush >= 0.3 or len(self._log_buffer) >= 80:
+            self.flush_log()
+
+    def flush_log(self):
+        if not self._log_buffer:
+            return
+        self._log_last_flush = time.monotonic()
+        for stamp, line in self._log_buffer:
+            self.log_view.controls.append(
+                ft.Text(
+                    spans=[
+                        ft.TextSpan(f"[{stamp}] ", style=ft.TextStyle(color=self.pal["gray"])),
+                        ft.TextSpan(line),
+                    ],
+                    size=self.fs,
+                    font_family="Consolas",
+                    selectable=True,
+                )
+            )
+        self._log_buffer.clear()
+        if len(self.log_view.controls) > 1200:
+            del self.log_view.controls[:400]
+        self.refresh(self.log_view)
+
+    def set_running(self, running: bool):
+        self.running = running
+        if not running:
+            release_download_lock()
+        self.download_btn.disabled = running
+        self.cancel_btn.disabled = not running
+        self.progress_row.visible = running
+        self.progress.value = None if running else 0
+        self.progress_label.value = ""
+        self.now_text.value = ""
+        self._last_prog: tuple[int, int] | None = None
+        self._last_now: str | None = None
+        self._last_now_ts = 0.0
+        self._expanded_progress = False
+        if not running:
+            self.flush_log()
+        self.refresh()
+
+    def set_progress(self, done: int, total: int):
+        if total <= 0:
+            return
+        key = (done, total)
+        if key == getattr(self, "_last_prog", None):
+            return
+        self._last_prog = key
+        self.progress.value = min(1.0, done / total)
+        self.progress_label.value = f"{done}/{total}"
+        self.refresh(self.progress, self.progress_label)
+
+    def set_now(self, text: str):
+        """Show the in-flight track line (throttled - frames arrive ~10/s)."""
+        import time
+
+        now = time.monotonic()
+        if text == getattr(self, "_last_now", None):
+            return
+        if now - getattr(self, "_last_now_ts", 0.0) < 0.4:
+            return
+        self._last_now = text
+        self._last_now_ts = now
+        self.now_text.value = text
+        self.refresh(self.now_text)
+
+    # ---------- actions ----------
+
+    def on_download(self, e):
+        if other_instance_downloading():
+            self.show_busy_dialog()
+            return
+        urls = [u.strip() for u in re.split(r"[\s,]+", self.urls_field.value or "") if u.strip()]
+        if not urls:
+            self.set_status(self.t("paste_link"), error=True)
+            return
+        if any("playlist/" in u for u in urls):
+            self.ask_playlist_mode(urls)
+            return
+        self.check_combo_or_start(urls, expand=None)
+
+    def show_busy_dialog(self):
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=self.t("lock_busy_title"),
+            content=ft.Text(self.t("lock_busy_msg")),
+            actions=[
+                ft.FilledButton(content="OK", on_click=lambda e: self.page.pop_dialog()),
+            ],
+        )
+        self.page.show_dialog(dlg)
+
+    def check_combo_or_start(self, urls: list[str], expand: str | None):
+        if any(COMBO_RE.search(u) for u in urls):
+            self.ask_album_or_track(urls, expand)
+        else:
+            self.maybe_artist_or_start(urls, expand)
+
+    def maybe_artist_or_start(self, urls: list[str], expand: str | None):
+        """Artist downloads are huge - confirm and pick singles/videos per run."""
+        if expand == "artists" or any("artist/" in u for u in urls):
+            self.ask_artist_options(urls, expand)
+        else:
+            self.start_download(urls, expand)
+
+    def ask_artist_options(self, urls: list[str], expand: str | None):
+        n = sum(1 for u in urls if "artist/" in u)
+        singles_dd = ft.Dropdown(
+            label=self.t("singles"),
+            width=200,
+            value=self.f_singles.value if self.f_singles.value in SINGLES_FILTERS else "none",
+            options=[ft.DropdownOption(v) for v in SINGLES_FILTERS],
+        )
+        videos_dd = ft.Dropdown(
+            label=self.t("videos"),
+            width=200,
+            value=self.f_videos.value if self.f_videos.value in VIDEOS_FILTERS else "none",
+            options=[ft.DropdownOption(v) for v in VIDEOS_FILTERS],
+        )
+        msg = (
+            self.t("dlg_artist_msg_expand")
+            if expand == "artists"
+            else self.t("dlg_artist_msg", n=n)
+        )
+
+        def go(e):
+            self.page.pop_dialog()
+            self.start_download(
+                urls, expand, singles=singles_dd.value, videos=videos_dd.value
+            )
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=self.t("dlg_artist_title"),
+            content=ft.Column(
+                [ft.Text(msg), singles_dd, videos_dd],
+                spacing=12,
+                tight=True,
+                width=430,
+            ),
+            actions=[
+                ft.TextButton(content=self.t("btn_cancel"), on_click=lambda e: self.page.pop_dialog()),
+                ft.FilledButton(content=self.t("btn_continue"), on_click=go),
+            ],
+        )
+        self.page.show_dialog(dlg)
+
+    def ask_playlist_mode(self, urls: list[str]):
+        """Playlist links can download as-is or expanded (tiddl --albums/--artists/--tracks)."""
+
+        def choose(mode: str | None):
+            def handler(e):
+                self.page.pop_dialog()
+                self.check_combo_or_start(urls, expand=mode)
+
+            return handler
+
+        def option(label: str, description: str, mode: str | None) -> ft.Control:
+            return ft.OutlinedButton(
+                content=ft.Column(
+                    [
+                        ft.Text(label, weight=ft.FontWeight.BOLD),
+                        ft.Text(description, size=11, color=ft.Colors.OUTLINE),
+                    ],
+                    spacing=2,
+                    tight=True,
+                ),
+                on_click=choose(mode),
+            )
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=self.t("dlg_playlist_title"),
+            content=ft.Column(
+                [
+                    ft.Text(self.t("dlg_playlist_q")),
+                    option(self.t("opt_playlist"), self.t("opt_playlist_d"), None),
+                    option(self.t("opt_albums"), self.t("opt_albums_d"), "albums"),
+                    option(self.t("opt_artists"), self.t("opt_artists_d"), "artists"),
+                    option(self.t("opt_tracks"), self.t("opt_tracks_d"), "tracks"),
+                ],
+                spacing=8,
+                tight=True,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                width=430,
+            ),
+            actions=[
+                ft.TextButton(content=self.t("btn_cancel"), on_click=lambda e: self.page.pop_dialog()),
+            ],
+        )
+        self.page.show_dialog(dlg)
+
+    def ask_album_or_track(self, urls: list[str], expand: str | None = None):
+        """Combined album/track links are ambiguous - let the user decide."""
+
+        def choose(mode: str):
+            def handler(e):
+                self.page.pop_dialog()
+                resolved = []
+                for u in urls:
+                    m = COMBO_RE.search(u)
+                    if m:
+                        u = u[: m.start()] + m.group(1) if mode == "album" else f"track/{m.group(2)}"
+                    resolved.append(u)
+                self.maybe_artist_or_start(resolved, expand)
+
+            return handler
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=self.t("dlg_combo_title"),
+            content=ft.Text(self.t("dlg_combo_q")),
+            actions=[
+                ft.TextButton(content=self.t("btn_cancel"), on_click=lambda e: self.page.pop_dialog()),
+                ft.OutlinedButton(content=self.t("opt_full_album"), on_click=choose("album")),
+                ft.FilledButton(content=self.t("opt_only_track"), on_click=choose("track")),
+            ],
+        )
+        self.page.show_dialog(dlg)
+
+    def build_cmd(
+        self,
+        urls: list[str],
+        base_override: str | None = None,
+        expand: str | None = None,
+        singles: str | None = None,
+        videos: str | None = None,
+    ) -> list[str] | None:
+        flags = self.settings_flags(base_override, singles=singles, videos=videos)
+        if flags is None:
+            return None
+        cmd = [self.tiddl_exe, "download", "-q", self.quality_dd.value or "high", *flags]
+        if expand in ("albums", "artists", "tracks"):
+            cmd.append(f"--{expand}")
+        if self.noskip_cb.value:
+            cmd.append("-ns")
+        cmd += ["url", *urls]
+        return cmd
+
+    def start_download(
+        self,
+        urls: list[str],
+        expand: str | None = None,
+        singles: str | None = None,
+        videos: str | None = None,
+    ):
+        playlist_path = (self.f_playlist_path.value or "").strip()
+        playlist_urls = [u for u in urls if "playlist/" in u]
+        other_urls = [u for u in urls if u not in playlist_urls]
+
+        # Windows caps a command line at ~32K chars; 300 URLs per run stays
+        # far below it, and the worker chains runs sequentially anyway.
+        def chunked(lst: list[str], n: int = 300) -> list[list[str]]:
+            return [lst[i : i + n] for i in range(0, len(lst), n)]
+
+        cmds: list[list[str]] = []
+
+        def add_runs(run_urls: list[str], **kwargs) -> bool:
+            for chunk in chunked(run_urls):
+                cmd = self.build_cmd(chunk, singles=singles, videos=videos, **kwargs)
+                if cmd is None:
+                    return False
+                cmds.append(cmd)
+            return True
+
+        if expand:
+            # Expanded downloads are albums/artists/tracks, NOT playlists:
+            # they go to the normal base folder, no playlist-folder split.
+            if not add_runs(urls, expand=expand):
+                return
+        elif playlist_path and playlist_urls:
+            # Playlists get their own base folder via a separate CLI run.
+            if other_urls and not add_runs(other_urls):
+                return
+            if not add_runs(playlist_urls, base_override=playlist_path):
+                return
+        else:
+            if not add_runs(urls):
+                return
+
+        if other_instance_downloading():
+            self.show_busy_dialog()
+            return
+
+        self.log_view.controls.clear()
+        self._log_buffer.clear()
+        acquire_download_lock()
+        self.set_running(True)
+        self.set_status(self.t("starting"))
+        self.page.run_thread(self.worker, cmds)
+
+    def on_cancel(self, e):
+        self.cancelled = True
+        if self.proc and self.proc.poll() is None:
+            subprocess.run(
+                ["taskkill", "/PID", str(self.proc.pid), "/T", "/F"],
+                capture_output=True,
+            )
+            self.set_status(self.t("cancelled"))
+
+    def run_one(self, cmd: list[str]) -> tuple[int, int | None]:
+        # COLUMNS controls rich's console width in the child: a wide value
+        # stops the CLI from hard-wrapping lines, so the log wraps naturally
+        # to the window width instead of at 80 columns. PYTHONUNBUFFERED makes
+        # the child flush per write - without it, piped output arrives in 8KB
+        # bursts instead of line by line as each track finishes.
+        # cwd = tiddl's folder so a bundled ffmpeg.exe sitting next to it wins.
+        last_line = None
+        total = None
+        self.proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+            env=self._cli_env(),
+            cwd=str(Path(self.tiddl_exe).parent),
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        assert self.proc.stdout is not None
+        for raw in self.proc.stdout:
+            stripped = ANSI_RE.sub("", raw).strip()
+            # Visual progress: album counter of expanded runs takes priority;
+            # otherwise use the CLI's own Total Progress frames (x/y items).
+            hm = HEART_RE.match(stripped)
+            if hm:
+                self._expanded_progress = True
+                self.set_progress(int(hm.group(1)), int(hm.group(2)))
+            elif not getattr(self, "_expanded_progress", False):
+                pm = PROG_FRAME_RE.match(stripped)
+                if pm:
+                    self.set_progress(int(pm.group(1)), int(pm.group(2)))
+
+            # In-flight track frames live inside the rich "Downloading" panel
+            # (lines framed with │...│); surface them as a "now downloading"
+            # label since the log filter drops panel frames entirely.
+            if stripped[:1] in "│┃|":
+                inner = SPINNER_RE.sub("", stripped.strip("│┃| ")).strip()
+                inner = re.sub(r"[━╸╺═]+", "", inner)
+                inner = re.sub(r"\s{2,}", "  ", inner).strip()
+                if inner and not re.match(r"^[\d.]+s\b", inner):
+                    self.set_now(inner)
+
+            line = meaningful_line(raw)
+            if not line or line == last_line:
+                continue
+            last_line = line
+            m = TOTAL_RE.search(line)
+            if m:
+                total = int(m.group(1))
+            if line.startswith("Auth token"):
+                self.set_status(line)
+                continue
+            if line.startswith("Downloading "):
+                self.set_status(line)
+            self.log(line)
+        return self.proc.wait(), total
+
+    def worker(self, cmds: list[list[str]]):
+        self.cancelled = False
+        grand_total = 0
+        worst_code = 0
+        try:
+            for i, cmd in enumerate(cmds, start=1):
+                if self.cancelled:
+                    break
+                if len(cmds) > 1:
+                    self.log(self.t("run_sep", i=i, n=len(cmds)))
+                code, total = self.run_one(cmd)
+                self.flush_log()
+                grand_total += total or 0
+                worst_code = worst_code or code
+        except Exception as ex:
+            self.set_running(False)
+            self.set_status(self.t("error", e=ex), error=True)
+            return
+
+        self.set_running(False)
+        if self.cancelled:
+            self.set_status(self.t("cancelled_n", n=grand_total))
+        elif worst_code == 0:
+            self.set_status(self.t("done_n", n=grand_total))
+        else:
+            self.set_status(self.t("errors_n", c=worst_code, n=grand_total), error=True)
+
+
+def main(page: ft.Page):
+    TiddlGui(page)
+
+
+if __name__ == "__main__":
+    ft.run(main)
