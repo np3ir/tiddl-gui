@@ -40,6 +40,7 @@ echo "[2/4] GUI (flet build linux)..."
 WORKDIR="$HOME/.tiddl-gui-build"
 rm -rf "$WORKDIR" && mkdir -p "$WORKDIR"
 cp main.py requirements.txt "$WORKDIR/"
+[ -d assets ] && cp -r assets "$WORKDIR/"
 pushd "$WORKDIR" > /dev/null
 echo y | flet build linux --project tiddl-gui --product "tiddl by ElVigilante" \
     --company ElVigilante --build-version "$VERSION"

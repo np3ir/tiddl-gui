@@ -35,9 +35,10 @@ if (-not $SkipGui) {
     New-Item -ItemType Directory -Force $work | Out-Null
     # La carpeta del proyecto debe quedar limpia: flet build empaqueta todo lo
     # que encuentre en ella (excepto build\).
-    Get-ChildItem $work -Exclude build | Where-Object { $_.Name -notin "main.py", "requirements.txt" } |
+    Get-ChildItem $work -Exclude build | Where-Object { $_.Name -notin "main.py", "requirements.txt", "assets" } |
         Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
     Copy-Item "$src\main.py", "$src\requirements.txt" $work -Force
+    Copy-Item "$src\assets" $work -Recurse -Force
     Set-Location $work
     "y" | flet build windows --project tiddl-gui --product "tiddl by ElVigilante" `
         --company ElVigilante --build-version $Version
