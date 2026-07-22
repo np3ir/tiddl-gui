@@ -59,9 +59,9 @@ Dev run: install the CLI, `pip install flet tomlkit`, then `python main.py`.
 
 Full release (`release.ps1`): builds the GUI with `flet build windows`, the standalone `tiddl.exe` with PyInstaller, and the installer with Inno Setup. Read the comments in the script — several hard-won gotchas are documented there (Flutter refuses paths with special characters, PyInstaller needs rich's dynamic Unicode submodules, flet packages everything in the project folder).
 
-## Disclaimer
+## Warning
 
-Unofficial project, not affiliated with, sponsored by, or endorsed by TIDAL. Intended for personal, offline use of content you have a valid subscription for.
+This app is for personal, educational, and archival purposes only. It is not affiliated with Tidal. Users must ensure their use complies with Tidal's terms of service and all applicable local copyright laws. Downloaded content is for personal use and may not be shared or redistributed. The developer assumes no responsibility for misuse of this app.
 
 ## License
 
