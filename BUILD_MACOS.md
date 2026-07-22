@@ -45,8 +45,15 @@ chmod +x release_macos.sh
 ## 3. Probar
 
 1. Monta el DMG y arrastra la app a Applications.
-2. Primera apertura: **click derecho → Open** (Gatekeeper, app sin firmar).
-   Alternativa: `xattr -cr "/Applications/tiddl by ElVigilante.app"`
+2. La app va sin firmar. Un DMG **descargado** de internet queda en cuarentena
+   y macOS moderno (Sequoia/15+) lo muestra como **"is damaged and can't be
+   opened"** — el `click derecho → Open` de siempre ya no basta. Quita la
+   cuarentena una vez:
+   ```bash
+   xattr -cr "/Applications/tiddl-gui.app"
+   ```
+   (Un DMG compilado localmente NO trae la marca; el problema solo aparece
+   tras descargarlo.)
 3. La app debe pedir el login de TIDAL (device flow en el navegador),
    luego configurar carpetas en Settings y probar una descarga.
 

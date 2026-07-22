@@ -49,8 +49,11 @@ Requiere una suscripción activa de TIDAL (HiFi para calidad lossless).
 ## Instalar (macOS)
 
 1. Descarga `tiddl-ElVigilante-x.x.x-macos.dmg` desde [Releases](../../releases) (Apple Silicon), ábrelo y arrastra la app a Aplicaciones
-2. Primera vez: **clic derecho → Abrir** (app sin firmar, Gatekeeper)
-3. Inicia sesión en TIDAL → configura tus carpetas → descarga
+2. La app no está firmada, así que macOS la pone en cuarentena. Si ves **"tiddl-gui is damaged and can't be opened"**, es esa marca de cuarentena — quítasela una vez desde la Terminal:
+   ```bash
+   xattr -cr "/Applications/tiddl-gui.app"
+   ```
+3. Ahora abre la app → inicia sesión en TIDAL → configura tus carpetas → descarga
 
 Para compilar el DMG tú mismo, mira [BUILD_MACOS.md](BUILD_MACOS.md).
 
