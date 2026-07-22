@@ -6,6 +6,8 @@ Interfaz de escritorio para [tiddl-elvigilante](https://github.com/np3ir/tiddl-e
 
 **Instalador de Windows con todo incluido**: sin instalar Python, ni pip, ni ffmpeg. Instalas, inicias sesión con tu cuenta de TIDAL, y a descargar.
 
+![Tab de descarga](assets/screenshots/01-download.png)
+
 ## Funciones
 
 - **Pega cualquier link de TIDAL** — canción, álbum, playlist, artista o mix; cientos a la vez (las listas largas se parten en corridas automáticamente)
@@ -16,6 +18,16 @@ Interfaz de escritorio para [tiddl-elvigilante](https://github.com/np3ir/tiddl-e
 - **Login de TIDAL integrado** — flujo de device-code directo desde la app
 - **English / Español**, temas violeta oscuro y claro, tamaño de letra ajustable
 - **Candado de descarga única** — varias ventanas no pueden saturar la API a la vez
+
+## Capturas
+
+| Ajustes | Ayuda |
+|---|---|
+| ![Tab de ajustes](assets/screenshots/02-settings.png) | ![Tab de ayuda](assets/screenshots/03-help.png) |
+
+Diálogo inteligente de playlist — bájala como playlist, o expándela en álbumes, discografías de artistas o canciones sueltas:
+
+![Diálogo de playlist](assets/screenshots/04-playlist-dialog.png)
 
 ## Instalar (Windows)
 

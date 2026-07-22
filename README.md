@@ -6,6 +6,8 @@ Desktop GUI for [tiddl-elvigilante](https://github.com/np3ir/tiddl-elvigilante),
 
 **Windows installer with everything bundled**: no Python, no pip, no ffmpeg to install. Download, log in with your TIDAL account, done.
 
+![Download tab](assets/screenshots/01-download.png)
+
 ## Features
 
 - **Paste any TIDAL link** — track, album, playlist, artist or mix; hundreds at a time (long lists are split into runs automatically)
@@ -16,6 +18,16 @@ Desktop GUI for [tiddl-elvigilante](https://github.com/np3ir/tiddl-elvigilante),
 - **Built-in TIDAL login** — device-code flow straight from the app
 - **English / Español**, violet dark & light themes, adjustable font size
 - **Single-download lock** — multiple windows can't hammer the API at once
+
+## Screenshots
+
+| Settings | Help |
+|---|---|
+| ![Settings tab](assets/screenshots/02-settings.png) | ![Help tab](assets/screenshots/03-help.png) |
+
+Smart playlist dialog — download as a playlist, or expand into albums, artist discographies or standalone tracks:
+
+![Playlist dialog](assets/screenshots/04-playlist-dialog.png)
 
 ## Install (Windows)
 
