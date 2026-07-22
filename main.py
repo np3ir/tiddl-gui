@@ -92,6 +92,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "redownload": "Re-download existing files",
         "btn_download": "Download",
         "btn_cancel": "Cancel",
+        "copy_log": "Copy log",
+        "log_copied": "Log copied to clipboard",
+        "log_copy_fail": "Could not copy: {err}",
         "ready": "Ready",
         "err_no_tiddl": "ERROR: tiddl executable not found on PATH",
         "browse": "Browse",
@@ -221,6 +224,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "redownload": "Re-descargar archivos existentes",
         "btn_download": "Descargar",
         "btn_cancel": "Cancelar",
+        "copy_log": "Copiar log",
+        "log_copied": "Log copiado al portapapeles",
+        "log_copy_fail": "No se pudo copiar: {err}",
         "ready": "Listo",
         "err_no_tiddl": "ERROR: no se encontró el ejecutable tiddl en el PATH",
         "browse": "Elegir",
@@ -564,6 +570,7 @@ class TiddlGui:
         self.cancelled = False
         self._log_buffer: list[tuple[str, str]] = []
         self._log_last_flush = 0.0
+        self._log_lines: list[str] = []
         self.cfg = load_tiddl_config()
         self.tiddl_exe = find_tiddl()
         gui_cfg = load_gui_settings()
@@ -660,6 +667,11 @@ class TiddlGui:
         if not hasattr(self, "file_picker"):
             self.file_picker = ft.FilePicker()
             p.services.append(self.file_picker)
+        if not hasattr(self, "clipboard"):
+            # Registered service — page.clipboard is deprecated and returns an
+            # unmounted instance whose set() does nothing.
+            self.clipboard = ft.Clipboard()
+            p.services.append(self.clipboard)
 
         download_tab = self.build_download_tab()
         settings_tab = self.build_settings_tab()
@@ -885,8 +897,22 @@ class TiddlGui:
                 self.status_text,
                 self.progress_row,
                 self.now_text,
+                ft.Row(
+                    [
+                        ft.Container(expand=True),
+                        ft.TextButton(
+                            content=self.t("copy_log"),
+                            icon=ft.Icons.CONTENT_COPY,
+                            on_click=self.on_copy_log,
+                        ),
+                    ]
+                ),
                 ft.Container(
-                    content=self.log_view,
+                    # SelectionArea lets the mouse select text across the log
+                    # lines where the platform allows it; the Copy log button
+                    # is the reliable path (ListView scroll gestures fight text
+                    # selection, so drag-select is not dependable).
+                    content=ft.SelectionArea(content=self.log_view),
                     expand=True,
                     border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
                     border_radius=8,
@@ -1423,10 +1449,23 @@ class TiddlGui:
                     selectable=True,
                 )
             )
+            self._log_lines.append(f"[{stamp}] {line}")
         self._log_buffer.clear()
         if len(self.log_view.controls) > 1200:
             del self.log_view.controls[:400]
+            del self._log_lines[:400]
         self.refresh(self.log_view)
+
+    async def on_copy_log(self, e):
+        self.flush_log()
+        text = "\n".join(self._log_lines)
+        if not text:
+            return
+        try:
+            await self.clipboard.set(text)
+            self.set_status(self.t("log_copied"))
+        except Exception as ex:
+            self.set_status(self.t("log_copy_fail", err=ex), error=True)
 
     def set_running(self, running: bool):
         self.running = running
@@ -1691,6 +1730,7 @@ class TiddlGui:
 
         self.log_view.controls.clear()
         self._log_buffer.clear()
+        self._log_lines.clear()
         acquire_download_lock()
         self.set_running(True)
         self.set_status(self.t("starting"))
