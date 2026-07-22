@@ -38,7 +38,8 @@ if __name__ == "__main__":
     main()
 EOF
 pyinstaller --onefile --console --name tiddl --noconfirm \
-    --collect-submodules tiddl --collect-submodules rich._unicode_data entry.py
+    --collect-submodules tiddl --collect-submodules rich._unicode_data \
+    --hidden-import filelock entry.py
 ./dist/tiddl --version
 cd ..
 

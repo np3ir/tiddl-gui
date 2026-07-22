@@ -63,7 +63,7 @@ if __name__ == "__main__":
     Set-Location $cli
     pyinstaller --onefile --console --name tiddl --noconfirm `
         --paths $repo --hidden-import tiddl --collect-submodules tiddl `
-        --collect-submodules rich._unicode_data entry.py
+        --collect-submodules rich._unicode_data --hidden-import filelock entry.py
     if ($LASTEXITCODE -ne 0) { throw "pyinstaller fallo (exit $LASTEXITCODE)" }
     $v = & "$cli\dist\tiddl.exe" --version 2>&1 | Select-Object -Last 1
     if ($LASTEXITCODE -ne 0) { throw "tiddl.exe no arranca" }
