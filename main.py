@@ -1366,7 +1366,14 @@ class TiddlGui:
                 ("playlist", self.f_tpl_playlist),
                 ("video", self.f_tpl_video),
             ]:
-                tpl[key] = (field.value or "").strip()
+                value = (field.value or "").strip()
+                # Never persist an empty template. An empty "default" in
+                # particular used to brick the CLI; leaving keys out lets
+                # tiddl apply its built-in defaults.
+                if value:
+                    tpl[key] = value
+                elif key in tpl:
+                    del tpl[key]
 
             cfg_path.write_text(tomlkit.dumps(doc), encoding="utf-8")
 
