@@ -2,6 +2,9 @@
 
 **English** · [Español](README.es.md)
 
+> [!WARNING]
+> This app is for personal, educational, and archival purposes only. It is not affiliated with Tidal. Users must ensure their use complies with Tidal's terms of service and all applicable local copyright laws. Downloaded content is for personal use and may not be shared or redistributed. The developer assumes no responsibility for misuse of this app.
+
 Desktop GUI for [tiddl-elvigilante](https://github.com/np3ir/tiddl-elvigilante), the production-ready TIDAL music downloader. Paste a link, pick the quality, and go — with all the power of the CLI underneath.
 
 **Windows installer with everything bundled**: no Python, no pip, no ffmpeg to install. Download, log in with your TIDAL account, done.
@@ -58,10 +61,6 @@ The GUI is a single-file [Flet](https://flet.dev) app (`main.py`) that drives th
 Dev run: install the CLI, `pip install flet tomlkit`, then `python main.py`.
 
 Full release (`release.ps1`): builds the GUI with `flet build windows`, the standalone `tiddl.exe` with PyInstaller, and the installer with Inno Setup. Read the comments in the script — several hard-won gotchas are documented there (Flutter refuses paths with special characters, PyInstaller needs rich's dynamic Unicode submodules, flet packages everything in the project folder).
-
-## Warning
-
-This app is for personal, educational, and archival purposes only. It is not affiliated with Tidal. Users must ensure their use complies with Tidal's terms of service and all applicable local copyright laws. Downloaded content is for personal use and may not be shared or redistributed. The developer assumes no responsibility for misuse of this app.
 
 ## License
 
