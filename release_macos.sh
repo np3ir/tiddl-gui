@@ -9,9 +9,13 @@
 #        sudo xcodebuild -license accept
 #   2. Homebrew (si no lo tienes: https://brew.sh) y luego:
 #        brew install python ffmpeg cocoapods
-#   3. Entorno Python (el Python de brew es externally-managed, usa venv):
-#        python3 -m venv ~/tiddl-venv
+#   3. Entorno Python. Usa python3.14 de brew EXPLICITAMENTE: si el venv se
+#      crea con un python3 viejo, hereda un pip anticuado que no ve flet
+#      0.86.1 ("Could not find a version ... flet[all]==0.86.1"). Actualiza
+#      pip antes de instalar.
+#        python3.14 -m venv ~/tiddl-venv   # o "$(brew --prefix)/bin/python3.14"
 #        source ~/tiddl-venv/bin/activate
+#        python -m pip install --upgrade pip
 #        pip install "git+https://github.com/np3ir/tiddl-elvigilante.git" \
 #                    pyinstaller "flet[all]==0.86.1" tomlkit
 #   Correr este script SIEMPRE con el venv activado.
