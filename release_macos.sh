@@ -62,7 +62,9 @@ APP=$(ls -d "$WORKDIR"/build/macos/*.app | head -1)
 BINDIR="$APP/Contents/MacOS"
 cp cli-build/dist/tiddl "$BINDIR/tiddl"
 cp "$(command -v ffmpeg)" "$BINDIR/ffmpeg"
-chmod +x "$BINDIR/tiddl" "$BINDIR/ffmpeg"
+# u+w too: Homebrew's ffmpeg is read-only, which later blocks `xattr -cr`
+# (removing the download quarantine) on the user's machine.
+chmod u+rwx "$BINDIR/tiddl" "$BINDIR/ffmpeg"
 # Ad-hoc re-sign: bundling binaries invalidates flet's signature, and an
 # unsigned app fails to launch on Apple Silicon. (Does not remove the
 # download-quarantine step; only notarization would.)
