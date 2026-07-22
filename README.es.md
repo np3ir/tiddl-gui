@@ -1,0 +1,56 @@
+# tiddl GUI — by ElVigilante
+
+[English](README.md) · **Español**
+
+Interfaz de escritorio para [tiddl-elvigilante](https://github.com/np3ir/tiddl-elvigilante), el descargador de música de TIDAL production-ready. Pega un link, elige la calidad y listo — con toda la potencia del CLI por debajo.
+
+**Instalador de Windows con todo incluido**: sin instalar Python, ni pip, ni ffmpeg. Instalas, inicias sesión con tu cuenta de TIDAL, y a descargar.
+
+## Funciones
+
+- **Pega cualquier link de TIDAL** — canción, álbum, playlist, artista o mix; cientos a la vez (las listas largas se parten en corridas automáticamente)
+- **Manejo inteligente de playlists** — bájala como playlist, o expándela en **álbumes completos**, **discografías de artistas** o **canciones sueltas** (cada uno con su estructura de carpetas y templates)
+- **Diálogo de seguridad para artistas** — confirma antes de descargas masivas de discografías y te deja elegir singles/videos por corrida
+- **Progreso en vivo** — barra de progreso real con contador, canción descargándose con porcentaje, log con marcas de tiempo
+- **Ajustes completos, estilo QBDLX** — carpetas de descarga/escaneo/videos, una **carpeta de playlists** aparte (otro disco si quieres), templates de nombres, hilos y delays anti-bot, letras (incrustadas en los tags y/o archivos `.lrc`)
+- **Login de TIDAL integrado** — flujo de device-code directo desde la app
+- **English / Español**, temas violeta oscuro y claro, tamaño de letra ajustable
+- **Candado de descarga única** — varias ventanas no pueden saturar la API a la vez
+
+## Instalar (Windows)
+
+1. Descarga `tiddl-ElVigilante-Setup-x.x.x.exe` desde [Releases](../../releases)
+2. SmartScreen te advertirá (instalador sin firmar): **Más información → Ejecutar de todas formas**
+3. Abre la app → **Iniciar sesión en TIDAL** → configura tus carpetas en Ajustes → descarga
+
+Requiere una suscripción activa de TIDAL (HiFi para calidad lossless).
+
+## Instalar (Linux)
+
+1. Descarga `tiddl-ElVigilante-x.x.x-linux-x64.tar.gz` desde [Releases](../../releases) y descomprímelo
+2. Instala ffmpeg de tu distro (`sudo apt install ffmpeg` o el equivalente)
+3. Ejecuta `./tiddl-gui` → inicia sesión en TIDAL → configura tus carpetas → descarga
+
+## Instalar (macOS)
+
+1. Descarga `tiddl-ElVigilante-x.x.x-macos.dmg` desde [Releases](../../releases) (Apple Silicon), ábrelo y arrastra la app a Aplicaciones
+2. Primera vez: **clic derecho → Abrir** (app sin firmar, Gatekeeper)
+3. Inicia sesión en TIDAL → configura tus carpetas → descarga
+
+Para compilar el DMG tú mismo, mira [BUILD_MACOS.md](BUILD_MACOS.md).
+
+## Compilar desde el código
+
+La GUI es una app de un solo archivo en [Flet](https://flet.dev) (`main.py`) que ejecuta el CLI `tiddl` como subproceso — cada función del core (base de datos de saltos, enriquecimiento de metadata, reintentos, límite de tasa) vive en [el CLI](https://github.com/np3ir/tiddl-elvigilante) y funciona sin cambios.
+
+Correr en desarrollo: instala el CLI, `pip install flet tomlkit`, luego `python main.py`.
+
+Release completo (`release.ps1`): compila la GUI con `flet build windows`, el `tiddl.exe` standalone con PyInstaller, y el instalador con Inno Setup. Lee los comentarios del script — hay varios detalles ganados a golpes documentados ahí (Flutter rechaza rutas con caracteres especiales, PyInstaller necesita los submódulos Unicode dinámicos de rich, flet empaqueta todo lo que haya en la carpeta del proyecto).
+
+## Aviso
+
+Proyecto no oficial, no afiliado, patrocinado ni respaldado por TIDAL. Pensado para uso personal y offline de contenido para el que tienes una suscripción válida.
+
+## Licencia
+
+[MIT](LICENSE)

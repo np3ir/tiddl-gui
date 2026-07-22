@@ -1,5 +1,7 @@
 # tiddl GUI — by ElVigilante
 
+**English** · [Español](README.es.md)
+
 Desktop GUI for [tiddl-elvigilante](https://github.com/np3ir/tiddl-elvigilante), the production-ready TIDAL music downloader. Paste a link, pick the quality, and go — with all the power of the CLI underneath.
 
 **Windows installer with everything bundled**: no Python, no pip, no ffmpeg to install. Download, log in with your TIDAL account, done.
@@ -29,7 +31,13 @@ Requires an active TIDAL subscription (HiFi for lossless quality).
 2. Install ffmpeg from your distro (`sudo apt install ffmpeg` or equivalent)
 3. Run `./tiddl-gui` → log in to TIDAL → set your folders → download
 
-macOS: build with `release_macos.sh` on a Mac — see [BUILD_MACOS.md](BUILD_MACOS.md) for the full step-by-step (DMG coming to Releases).
+## Install (macOS)
+
+1. Download `tiddl-ElVigilante-x.x.x-macos.dmg` from [Releases](../../releases) (Apple Silicon), open it and drag the app to Applications
+2. First launch: **right-click → Open** (unsigned app, Gatekeeper)
+3. Log in to TIDAL → set your folders → download
+
+To build the DMG yourself, see [BUILD_MACOS.md](BUILD_MACOS.md).
 
 ## Build from source
 
