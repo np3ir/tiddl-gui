@@ -59,6 +59,33 @@ STRINGS: dict[str, dict[str, str]] = {
     "en": {
         "tab_download": "Download",
         "tab_settings": "Settings",
+        "tab_help": "Help",
+        "help_intro": (
+            "Naming templates control the folder structure and file names of your "
+            "downloads. Write a path using the variables below in curly braces, "
+            "using / to separate folders. The last segment becomes the file name "
+            "(the extension is added automatically)."
+        ),
+        "help_example_label": "Example",
+        "help_example": "{artist_initials}/{album.artist}/({album.date:%Y}) {album.title}/{item.number:02} - {item.title}",
+        "help_example_note": "produces, e.g.:  R/Radiohead/(1997) OK Computer/06 - Karma Police.flac",
+        "help_sec_shortcuts": "Handy shortcuts",
+        "help_sec_item": "Track / video — {item.*}",
+        "help_sec_album": "Album — {album.*}",
+        "help_sec_playlist": "Playlist — {playlist.*}",
+        "help_sec_formats": "Format modifiers",
+        "help_col_var": "Variable",
+        "help_col_desc": "Description",
+        "help_fmt_intro": "Some variables accept a modifier after a colon:",
+        "help_fmt_dates": "Dates use Python strftime codes: {album.date:%Y} → 1997, {album.date:%Y-%m-%d} → 1997-06-16.",
+        "help_fmt_numbers": "Numbers can be zero-padded: {item.number:02} → 06.",
+        "help_fmt_explicit": "Explicit tag renders only when the track is explicit, otherwise nothing:",
+        "help_fmt_flags": "Dolby Atmos / Master render the text you write only when the track qualifies:",
+        "help_safe_note": (
+            "Tip: the safe_* variants (safe_title, safe_artist, ...) are pre-cleaned "
+            "of characters some file systems dislike. Multiple artists are joined with "
+            "the separator set in your tiddl config (artist_separator)."
+        ),
         "links_label": "TIDAL links",
         "links_hint": "Paste one or more links (track / album / playlist / artist / mix), one per line",
         "quality": "Quality",
@@ -160,6 +187,34 @@ STRINGS: dict[str, dict[str, str]] = {
     "es": {
         "tab_download": "Descargar",
         "tab_settings": "Ajustes",
+        "tab_help": "Ayuda",
+        "help_intro": (
+            "Los templates de nombres controlan la estructura de carpetas y los "
+            "nombres de archivo de tus descargas. Escribe una ruta usando las "
+            "variables de abajo entre llaves, separando carpetas con /. El último "
+            "segmento es el nombre del archivo (la extensión se agrega sola)."
+        ),
+        "help_example_label": "Ejemplo",
+        "help_example": "{artist_initials}/{album.artist}/({album.date:%Y}) {album.title}/{item.number:02} - {item.title}",
+        "help_example_note": "produce, por ejemplo:  R/Radiohead/(1997) OK Computer/06 - Karma Police.flac",
+        "help_sec_shortcuts": "Atajos útiles",
+        "help_sec_item": "Canción / video — {item.*}",
+        "help_sec_album": "Álbum — {album.*}",
+        "help_sec_playlist": "Playlist — {playlist.*}",
+        "help_sec_formats": "Modificadores de formato",
+        "help_col_var": "Variable",
+        "help_col_desc": "Descripción",
+        "help_fmt_intro": "Algunas variables aceptan un modificador tras dos puntos:",
+        "help_fmt_dates": "Las fechas usan códigos strftime de Python: {album.date:%Y} → 1997, {album.date:%Y-%m-%d} → 1997-06-16.",
+        "help_fmt_numbers": "Los números se pueden rellenar con ceros: {item.number:02} → 06.",
+        "help_fmt_explicit": "La marca explícita aparece solo si la canción es explícita, si no queda vacía:",
+        "help_fmt_flags": "Dolby Atmos / Master muestran el texto que escribas solo si la canción califica:",
+        "help_safe_note": (
+            "Tip: las variantes safe_* (safe_title, safe_artist, ...) vienen limpias "
+            "de caracteres que a algunos sistemas de archivos no les gustan. Los "
+            "artistas múltiples se unen con el separador de tu config de tiddl "
+            "(artist_separator)."
+        ),
         "links_label": "Links de TIDAL",
         "links_hint": "Pega uno o más links (track / álbum / playlist / artista / mix), uno por línea",
         "quality": "Calidad",
@@ -291,6 +346,70 @@ PALETTES = {
 # Base text size per setting (log/status/now lines scale from this),
 # mirroring the exam app's font-medium/large/xlarge.
 FONT_SIZES = {"normal": 12, "large": 14, "xlarge": 17}
+
+# Template variable reference for the Help tab: (name, {en, es}).
+# Kept in sync with tiddl/core/utils/format.py (ItemTemplate/AlbumTemplate/
+# PlaylistTemplate dataclasses + aliases).
+HELP_SHORTCUTS = [
+    ("{title}", {"en": "Track title", "es": "Título de la canción"}),
+    ("{artist}", {"en": "Track's main artist", "es": "Artista principal de la canción"}),
+    ("{albumartist}", {"en": "Album's main artist", "es": "Artista principal del álbum"}),
+    ("{artist_initials}", {"en": "First letter of the artist, for A/B/C… folders (uses album artist)",
+                           "es": "Primera letra del artista, para carpetas A/B/C… (usa el artista del álbum)"}),
+    ("{release_date}", {"en": "Album release date", "es": "Fecha de lanzamiento del álbum"}),
+    ("{quality}", {"en": "Download quality (LOW/HIGH/LOSSLESS/HI_RES…)", "es": "Calidad de la descarga (LOW/HIGH/LOSSLESS/HI_RES…)"}),
+    ("{now}", {"en": "Current date/time (accepts date formats)", "es": "Fecha/hora actual (acepta formatos de fecha)"}),
+]
+HELP_ITEM = [
+    ("{item.title}", {"en": "Title", "es": "Título"}),
+    ("{item.safe_title}", {"en": "Title, filesystem-safe", "es": "Título, apto para el sistema de archivos"}),
+    ("{item.title_version}", {"en": "Title including version, e.g. 'Song (Remastered)'", "es": "Título con versión, ej. 'Song (Remastered)'"}),
+    ("{item.version}", {"en": "Version only, e.g. 'Remastered 2011'", "es": "Solo la versión, ej. 'Remastered 2011'"}),
+    ("{item.number}", {"en": "Track number", "es": "Número de pista"}),
+    ("{item.volume}", {"en": "Disc / volume number", "es": "Número de disco / volumen"}),
+    ("{item.artist}", {"en": "Main artist", "es": "Artista principal"}),
+    ("{item.artists}", {"en": "All artists joined", "es": "Todos los artistas unidos"}),
+    ("{item.features}", {"en": "Featured artists", "es": "Artistas invitados (feat.)"}),
+    ("{item.artists_with_features}", {"en": "Main + featured artists", "es": "Artista principal + invitados"}),
+    ("{item.genre}", {"en": "Genre", "es": "Género"}),
+    ("{item.bpm}", {"en": "Beats per minute", "es": "Pulsaciones por minuto"}),
+    ("{item.isrc}", {"en": "ISRC code", "es": "Código ISRC"}),
+    ("{item.copyright}", {"en": "Copyright text", "es": "Texto de copyright"}),
+    ("{item.quality}", {"en": "Track quality", "es": "Calidad de la pista"}),
+    ("{item.explicit}", {"en": "Explicit tag (see modifiers)", "es": "Marca explícita (ver modificadores)"}),
+    ("{item.dolby}", {"en": "Dolby Atmos flag (see modifiers)", "es": "Marca Dolby Atmos (ver modificadores)"}),
+    ("{item.releaseDate}", {"en": "Release date (accepts date formats)", "es": "Fecha de lanzamiento (acepta formatos de fecha)"}),
+    ("{item.id}", {"en": "TIDAL track ID", "es": "ID de la pista en TIDAL"}),
+]
+HELP_ALBUM = [
+    ("{album.title}", {"en": "Album title", "es": "Título del álbum"}),
+    ("{album.safe_title}", {"en": "Album title, filesystem-safe", "es": "Título del álbum, apto para archivos"}),
+    ("{album.artist}", {"en": "Album's main artist", "es": "Artista principal del álbum"}),
+    ("{album.artists}", {"en": "All album artists joined", "es": "Todos los artistas del álbum unidos"}),
+    ("{album.date}", {"en": "Release date (accepts date formats)", "es": "Fecha de lanzamiento (acepta formatos de fecha)"}),
+    ("{album.release}", {"en": "Type: ALBUM / EP / SINGLE…", "es": "Tipo: ALBUM / EP / SINGLE…"}),
+    ("{album.explicit}", {"en": "Explicit tag (see modifiers)", "es": "Marca explícita (ver modificadores)"}),
+    ("{album.master}", {"en": "Master/HiRes flag (see modifiers)", "es": "Marca Master/HiRes (ver modificadores)"}),
+    ("{album.id}", {"en": "TIDAL album ID", "es": "ID del álbum en TIDAL"}),
+]
+HELP_PLAYLIST = [
+    ("{playlist.title}", {"en": "Playlist name", "es": "Nombre de la playlist"}),
+    ("{playlist.index}", {"en": "Track's position in the playlist", "es": "Posición de la canción en la playlist"}),
+    ("{playlist.created}", {"en": "Creation date (accepts date formats)", "es": "Fecha de creación (acepta formatos de fecha)"}),
+    ("{playlist.updated}", {"en": "Last-updated date (accepts date formats)", "es": "Fecha de última actualización (acepta formatos de fecha)"}),
+    ("{playlist.uuid}", {"en": "Playlist UUID", "es": "UUID de la playlist"}),
+]
+HELP_EXPLICIT_FMT = [
+    ("{item.explicit:E}", "E"),
+    ("{item.explicit:long}", "explicit"),
+    ("{item.explicit:upperlong}", "EXPLICIT"),
+    ("{item.explicit:parens}", " (Explicit)"),
+    ("{item.explicit:shortparens}", " (explicit)"),
+]
+HELP_FLAG_FMT = [
+    ("{item.dolby:ATMOS}", "ATMOS"),
+    ("{album.master:MASTER}", "MASTER"),
+]
 
 # Settings fields preserved across a language-switch rebuild.
 STASH_FIELDS = [
@@ -544,10 +663,11 @@ class TiddlGui:
 
         download_tab = self.build_download_tab()
         settings_tab = self.build_settings_tab()
+        help_tab = self.build_help_tab()
 
         p.add(
             ft.Tabs(
-                length=2,
+                length=3,
                 expand=True,
                 content=ft.Column(
                     [
@@ -555,11 +675,12 @@ class TiddlGui:
                             tabs=[
                                 ft.Tab(label=self.t("tab_download"), icon=ft.Icons.DOWNLOAD),
                                 ft.Tab(label=self.t("tab_settings"), icon=ft.Icons.SETTINGS),
+                                ft.Tab(label=self.t("tab_help"), icon=ft.Icons.HELP_OUTLINE),
                             ]
                         ),
                         ft.TabBarView(
                             expand=True,
-                            controls=[download_tab, settings_tab],
+                            controls=[download_tab, settings_tab, help_tab],
                         ),
                     ],
                     expand=True,
@@ -955,6 +1076,115 @@ class TiddlGui:
             ],
             expand=True,
             spacing=8,
+            scroll=ft.ScrollMode.AUTO,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+        )
+
+    def build_help_tab(self) -> ft.Control:
+        mono = "Consolas"
+
+        def heading(text: str) -> ft.Control:
+            return ft.Text(text, size=self.fs + 3, weight=ft.FontWeight.BOLD, color=self.pal["primary"])
+
+        def var_table(rows: list[tuple[str, dict]]) -> ft.Control:
+            cells = []
+            for name, desc in rows:
+                cells.append(
+                    ft.Row(
+                        [
+                            ft.Container(
+                                content=ft.Text(name, font_family=mono, size=self.fs,
+                                                color=self.pal["primary"], selectable=True),
+                                width=230,
+                            ),
+                            ft.Container(
+                                content=ft.Text(desc[self.lang if self.lang in ("en", "es") else "en"],
+                                                size=self.fs),
+                                expand=True,
+                            ),
+                        ],
+                        vertical_alignment=ft.CrossAxisAlignment.START,
+                    )
+                )
+            return ft.Column(cells, spacing=6)
+
+        def fmt_table(rows: list[tuple[str, str]]) -> ft.Control:
+            cells = []
+            for tpl, out in rows:
+                cells.append(
+                    ft.Row(
+                        [
+                            ft.Container(
+                                content=ft.Text(tpl, font_family=mono, size=self.fs,
+                                                color=self.pal["primary"], selectable=True),
+                                width=260,
+                            ),
+                            ft.Text("→", size=self.fs, color=self.pal["gray"]),
+                            ft.Text(out if out.strip() else '"' + out + '"', font_family=mono, size=self.fs),
+                        ]
+                    )
+                )
+            return ft.Column(cells, spacing=6)
+
+        def card(content: ft.Control) -> ft.Control:
+            return ft.Container(
+                content=content,
+                bgcolor=self.pal["surface"],
+                border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+                border_radius=8,
+                padding=12,
+            )
+
+        example_box = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Text(self.t("help_example"), font_family=mono, size=self.fs,
+                            color=self.pal["primary"], selectable=True),
+                    ft.Text(self.t("help_example_note"), size=self.fs - 1, color=self.pal["gray"]),
+                ],
+                spacing=6,
+            ),
+            bgcolor=self.pal["surface"],
+            border_radius=8,
+            padding=12,
+        )
+
+        return ft.Column(
+            [
+                ft.Container(height=4),
+                ft.Text(self.t("help_intro"), size=self.fs),
+                ft.Text(self.t("help_example_label"), size=self.fs, weight=ft.FontWeight.BOLD),
+                example_box,
+                heading(self.t("help_sec_shortcuts")),
+                card(var_table(HELP_SHORTCUTS)),
+                heading(self.t("help_sec_item")),
+                card(var_table(HELP_ITEM)),
+                heading(self.t("help_sec_album")),
+                card(var_table(HELP_ALBUM)),
+                heading(self.t("help_sec_playlist")),
+                card(var_table(HELP_PLAYLIST)),
+                heading(self.t("help_sec_formats")),
+                card(
+                    ft.Column(
+                        [
+                            ft.Text(self.t("help_fmt_intro"), size=self.fs),
+                            ft.Text(self.t("help_fmt_dates"), size=self.fs),
+                            ft.Text(self.t("help_fmt_numbers"), size=self.fs),
+                            ft.Divider(height=8, color=ft.Colors.OUTLINE_VARIANT),
+                            ft.Text(self.t("help_fmt_explicit"), size=self.fs),
+                            fmt_table(HELP_EXPLICIT_FMT),
+                            ft.Divider(height=8, color=ft.Colors.OUTLINE_VARIANT),
+                            ft.Text(self.t("help_fmt_flags"), size=self.fs),
+                            fmt_table(HELP_FLAG_FMT),
+                        ],
+                        spacing=8,
+                    )
+                ),
+                ft.Text(self.t("help_safe_note"), size=self.fs - 1, color=self.pal["gray"]),
+                ft.Container(height=8),
+            ],
+            expand=True,
+            spacing=10,
             scroll=ft.ScrollMode.AUTO,
             horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
         )
