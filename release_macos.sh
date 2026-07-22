@@ -63,10 +63,20 @@ BINDIR="$APP/Contents/MacOS"
 cp cli-build/dist/tiddl "$BINDIR/tiddl"
 cp "$(command -v ffmpeg)" "$BINDIR/ffmpeg"
 chmod +x "$BINDIR/tiddl" "$BINDIR/ffmpeg"
+# Ad-hoc re-sign: bundling binaries invalidates flet's signature, and an
+# unsigned app fails to launch on Apple Silicon. (Does not remove the
+# download-quarantine step; only notarization would.)
+codesign --force --deep --sign - "$APP" 2>/dev/null || true
 
 echo "[4/4] Creando DMG..."
 mkdir -p dist-mac
-hdiutil create -volname "tiddl by ElVigilante" -srcfolder "$APP" -ov -format UDZO \
+# Stage the app next to an Applications symlink so the DMG has the standard
+# drag-to-Applications layout instead of a bare .app with no drop target.
+STAGE="$WORKDIR/dmg-stage"
+rm -rf "$STAGE" && mkdir "$STAGE"
+cp -R "$APP" "$STAGE/"
+ln -s /Applications "$STAGE/Applications"
+hdiutil create -volname "tiddl by ElVigilante" -srcfolder "$STAGE" -ov -format UDZO \
     "dist-mac/tiddl-ElVigilante-$VERSION-macos.dmg"
 
 echo ""
