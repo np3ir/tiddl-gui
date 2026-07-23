@@ -908,11 +908,11 @@ class TiddlGui:
                     ]
                 ),
                 ft.Container(
-                    # SelectionArea lets the mouse select text across the log
-                    # lines where the platform allows it; the Copy log button
-                    # is the reliable path (ListView scroll gestures fight text
-                    # selection, so drag-select is not dependable).
-                    content=ft.SelectionArea(content=self.log_view),
+                    # NOTE: do NOT wrap this in ft.SelectionArea — over a log
+                    # that grows to hundreds/thousands of lines it recomputes
+                    # selection on every update and freezes the render. The
+                    # "Copy log" button is the way to get the text out.
+                    content=self.log_view,
                     expand=True,
                     border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
                     border_radius=8,
