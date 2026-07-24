@@ -34,9 +34,37 @@ try:
 except ModuleNotFoundError:  # Python < 3.11
     tomllib = None
 
+# Bump this every release; the built installer version should match.
+APP_VERSION = "1.0.5"
+GUI_REPO = "np3ir/tiddl-gui"
+RELEASES_URL = f"https://github.com/{GUI_REPO}/releases/latest"
+API_LATEST = f"https://api.github.com/repos/{GUI_REPO}/releases/latest"
+
 QUALITIES = ["low", "normal", "high", "max"]
 SINGLES_FILTERS = ["none", "only", "include"]
 VIDEOS_FILTERS = ["none", "allow", "only"]
+
+
+def _parse_version(s: str) -> tuple:
+    """'v1.2.3' -> (1, 2, 3) for comparison; ignores prefix and suffixes."""
+    nums = re.findall(r"\d+", (s or "").strip())
+    return tuple(int(n) for n in nums[:3]) or (0,)
+
+
+def latest_release() -> str | None:
+    """Query GitHub for the latest release tag. None on any failure/offline."""
+    import json
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(
+            API_LATEST, headers={"Accept": "application/vnd.github+json", "User-Agent": "tiddl-gui"}
+        )
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            data = json.load(resp)
+        return data.get("tag_name")
+    except Exception:
+        return None
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(\x07|\x1b\\)")
 BOX_CHARS = set("╭╮╰╯│─┌┐└┘━┏┓┗┛┃┤├")
@@ -95,6 +123,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "copy_log": "Copy log",
         "log_copied": "Log copied to clipboard",
         "log_copy_fail": "Could not copy: {err}",
+        "update_available": "Update available",
+        "update_tooltip": "Version {ver} is available (you have {cur}) - click to download",
         "ready": "Ready",
         "err_no_tiddl": "ERROR: tiddl executable not found on PATH",
         "browse": "Browse",
@@ -227,6 +257,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "copy_log": "Copiar log",
         "log_copied": "Log copiado al portapapeles",
         "log_copy_fail": "No se pudo copiar: {err}",
+        "update_available": "Actualización disponible",
+        "update_tooltip": "La versión {ver} está disponible (tienes {cur}) - clic para descargar",
         "ready": "Listo",
         "err_no_tiddl": "ERROR: no se encontró el ejecutable tiddl en el PATH",
         "browse": "Elegir",
@@ -707,7 +739,18 @@ class TiddlGui:
             self.set_status(self.t("lock_startup_warn"))
         else:
             self.page.run_thread(self.check_auth)
+        self.page.run_thread(self.check_updates)
         p.update()
+
+    def check_updates(self):
+        tag = latest_release()
+        if not tag:
+            return
+        if _parse_version(tag) > _parse_version(APP_VERSION):
+            ver = tag.lstrip("vV")
+            self.update_btn.tooltip = self.t("update_tooltip", ver=ver, cur=APP_VERSION)
+            self.update_btn.visible = True
+            self.refresh(self.update_btn)
 
     # ---------- auth ----------
 
@@ -861,6 +904,12 @@ class TiddlGui:
             on_click=self.on_login,
             visible=False,
         )
+        self.update_btn = ft.TextButton(
+            content=self.t("update_available"),
+            icon=ft.Icons.SYSTEM_UPDATE,
+            on_click=lambda e: self.page.launch_url(RELEASES_URL),
+            visible=False,
+        )
         self.cancel_btn = ft.OutlinedButton(
             content=self.t("btn_cancel"),
             icon=ft.Icons.CLOSE,
@@ -888,6 +937,7 @@ class TiddlGui:
                         self.quality_dd,
                         self.noskip_cb,
                         ft.Container(expand=True),
+                        self.update_btn,
                         self.login_btn,
                         self.download_btn,
                         self.cancel_btn,
