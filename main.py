@@ -671,7 +671,7 @@ class TiddlGui:
 
     def build(self):
         p = self.page
-        p.title = "tiddl by ElVigilante - TIDAL Downloader"
+        p.title = f"tiddl by ElVigilante {APP_VERSION} - TIDAL Downloader"
         p.window.width = 900
         p.window.height = 820
         p.padding = 12
@@ -949,13 +949,15 @@ class TiddlGui:
                 self.now_text,
                 ft.Row(
                     [
+                        ft.Text(f"v{APP_VERSION}", size=self.fs - 1, color=self.pal["gray"]),
                         ft.Container(expand=True),
                         ft.TextButton(
                             content=self.t("copy_log"),
                             icon=ft.Icons.CONTENT_COPY,
                             on_click=self.on_copy_log,
                         ),
-                    ]
+                    ],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 ft.Container(
                     # NOTE: do NOT wrap this in ft.SelectionArea — over a log
